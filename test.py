@@ -1,5 +1,5 @@
 from opom import OPOM, TransferFunction
-from sihmpccontroller import SIHMPCController
+from sihmpc import SIHMPCController
 
 import time
 import numpy as np
