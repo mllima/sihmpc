@@ -70,10 +70,10 @@ class SIHMPCController(object):
         self.Q_bar = []
        
         # symbolic variables
-        self.dUk = csd.MX.sym('du', self.nu)
-        self.Xk = csd.MX.sym('x', self.nx)
-        self.Uk = csd.MX.sym('u', self.nu)
-        self.Yk = csd.MX.sym('y', self.ny)
+        self.dU = csd.MX.sym('du', self.nu)
+        self.X = csd.MX.sym('x', self.nx)
+        self.U = csd.MX.sym('u', self.nu)
+        self.Y = csd.MX.sym('y', self.ny)
         self.Ysp = csd.MX.sym('Ysp', self.ny)    # set-point
         self.syN = csd.MX.sym('syN', self.ny)    # Variáveis de folga na saída
         self.siN = csd.MX.sym('siN', self.ny)    # Variável de folga terminal
@@ -87,20 +87,20 @@ class SIHMPCController(object):
     def _DynamicF(self):
         #return the casadi function that represent the dynamic system
         
-        dUk = self.dUk  
-        Xk = self.Xk  
-        Uk = self.Uk  
+        dU = self.dU  
+        X = self.X  
+        U = self.U  
 
         A = self.sys.A
         B = self.sys.B
         C = self.sys.C
         D = self.sys.D
         
-        Xkp1 = csd.mtimes(A, Xk) + csd.mtimes(B, dUk)
-        Ykp1 = csd.mtimes(C, Xkp1) + csd.mtimes(D, dUk)
-        Ukp1 = Uk + dUk
+        Xkp1 = csd.mtimes(A, X) + csd.mtimes(B, dU)
+        Ykp1 = csd.mtimes(C, Xkp1) + csd.mtimes(D, dU)
+        Ukp1 = U + dU
 
-        F = csd.Function('F', [Xk, Uk, dUk], [Xkp1, Ykp1, Ukp1],
+        F = csd.Function('F', [X, U, dU], [Xkp1, Ykp1, Ukp1],
                      ['x0', 'u0', 'du0'],
                      ['xkp1', 'ykp1', 'ukp1'])
         return F
@@ -133,10 +133,10 @@ class SIHMPCController(object):
         Ysp = self.Ysp    # set-point
         syN = self.syN    # Variáveis de folga na saída
         siN = self.siN    # Variável de folga terminal
-        Xk = self.Xk
-        Uk = self.Uk        
-        Xkp1 = Xk
-        Ukp1 = Uk
+        X = self.X
+        U = self.U        
+        Xkp1 = X
+        Ukp1 = U
         
         X_pred = []
         Y_pred = []
@@ -236,7 +236,7 @@ class SIHMPCController(object):
 
         g = csd.vertcat(*g)
         w = csd.vertcat(*w)
-        p = csd.vertcat(Xk, Ysp, Uk, Pesos, ViN_ant)
+        p = csd.vertcat(X, Ysp, U, Pesos, ViN_ant)
         lbw = csd.vertcat(*lbw)
         ubw = csd.vertcat(*ubw)
         lbg = csd.vertcat(*lbg)
@@ -246,12 +246,12 @@ class SIHMPCController(object):
         X_pred = csd.vertcat(*X_pred)
         Y_pred = csd.vertcat(*Y_pred)
         U_pred = csd.vertcat(*U_pred)
-        pred = csd.Function('pred', [Xk, Uk, csd.vertcat(*dU_pred)], 
+        pred = csd.Function('pred', [X, U, csd.vertcat(*dU_pred)], 
                             [X_pred, Y_pred, U_pred],
                             ['x0', 'u0', 'du_opt'],
                             ['x_pred', 'y_pred', 'u_pred'])
 
-        sobj = csd.Function('sobj',[Xk, Uk, w, Ysp],
+        sobj = csd.Function('sobj',[X, U, w, Ysp],
                                    [Vy, Vdu, VyN, ViN, Vt],
                                    ['x0', 'u0', 'w0', 'ysp'],
                                    ['Vy', 'Vdu', 'VyN', 'ViN', 'Vt'])
@@ -302,15 +302,15 @@ class SIHMPCController(object):
             index = index + self.nu
 
         Ysp = self.Ysp
-        Xk = self.Xk
-        Uk = self.Uk  
+        X = self.X
+        U = self.U  
         
         Pesos = self.Pesos
         ViN_ant = self.ViN_ant
         
         indx = (self.N-1)*(self.nx+self.nu)
         MPC = csd.Function('MPC',
-            [W0, Xk, Ysp, Uk, LAM_W0, LAM_G0, Pesos, ViN_ant],
+            [W0, X, Ysp, U, LAM_W0, LAM_G0, Pesos, ViN_ant],
             [sol['f'], du_opt, sol['x'], sol['lam_x'], sol['lam_g'], sol['g'], sol['g'][indx:indx+self.nx]],
             ['w0', 'x0', 'ySP', 'u0', 'lam_w0', 'lam_g0', 'pesos', 'Vant'],
             ['J','du_opt', 'w_opt', 'lam_w', 'lam_g', 'g', 'xN'])
@@ -362,56 +362,3 @@ class SIHMPCController(object):
         pesos = np.append(pesos,(py, pdu, pyN, piN))
         return pesos
 
-
-
-
-
-
-
-
-
-
-    
-#    def satWeights(self, x, w_start, ysp):
-#        # custos seguintes estimados
-#        Vynext = 0
-#        Vytnext = 0
-#        Vdunext = 0
-#        ViNnext = 0
-#        VyNnext = 0
-#        
-#        u = np.zeros(self.nu)   # because u is not relevant
-#        du_opt = w_start[:-2*self.ny] # removing syN and siN
-#        x_pred, y_pred, _ = self.pred(x, u, du_opt)
-#    
-#        x_pred = x_pred.reshape((self.nx,self.N)).full()
-#        XN = x_pred[:,-1]
-#        
-#        xsN = XN[0:self.nxs]
-#        xdN = XN[self.nxs:self.nxs+self.nxd]
-#        xiN = XN[self.nxs+self.nxd:self.nxs+self.nxd+self.nxi]   
-#        
-#        syNnext = xsN - ysp
-#        siNnext = xiN
-#        
-#        VyNnext = np.dot(syNnext**2, np.diag(self.Sy))
-#        ViNnext = np.dot(siNnext**2, np.diag(self.Si))
-#        Vtnext = (xdN**2).T@np.diag(self.Q_bar)
-#        
-#        y_pred = y_pred.reshape((self.ny,self.N)).full()
-#        du_opt = du_opt.reshape((self.nu, self.N))
-#        
-#        for j in range(0, self.N):
-#            Vynext += np.dot((y_pred[:,j] - ysp - syNnext - \
-#                              (j-self.N)*self.Ts*siNnext)**2, np.diag(self.Qy))
-#            Vdunext += np.dot(du_opt[:,j]**2, np.diag(self.R))
-#            
-#        Vytnext = Vynext + Vtnext
-#        
-#        py =  1/(self.gamma_e - np.clip(Vytnext, 0, 0.999*self.gamma_e))
-#        pdu = 1/(self.gamma_du - np.clip(Vdunext, 0, 0.999*self.gamma_du))
-#        pyN = 1/(self.gamma_syN - np.clip(VyNnext, 0, 0.999*self.gamma_syN))
-#        piN = 1/(self.gamma_siN - np.clip(ViNnext, 0, 0.999*self.gamma_siN))
-#        
-#        pesos = [py, pdu, pyN, piN]
-#        return pesos
