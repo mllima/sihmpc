@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 """
-Created on Nov 2017
 @author: Marcelo Lima
 """
 import casadi as csd
@@ -9,14 +8,8 @@ from opom import OPOM
 import scipy as sp
 
 
-class SIHMPCController(object):
-    def __init__(self, sys, N, 
-                 gamma_e=10,
-                 gamma_du=10,
-                 gamma_syN=0.0001,
-                 gamma_siN=0.0001,
-                 **kwargs
-                 ):
+class IHMPCController(object):
+    def __init__(self, sys, N, **kwargs):
 
         assert issubclass(type(sys), OPOM), 'the system (sys) must be of type OPOM'
         self.sys = sys
@@ -53,24 +46,17 @@ class SIHMPCController(object):
         self.rsub = kwargs.get('rsub', np.zeros(sys.ny))            # Upper bound na restrição terminal de xs
         self.rilb = kwargs.get('rilb', np.zeros(sys.ny))            # Lower bound na restrição terminal de xi
         self.riub = kwargs.get('riub', np.zeros(sys.ny))             # Upper bound na restrição terminal de xi
-
         # A escolha dos pesos é bastante simplificada: em geral se escolhe peso 1
-        self.Qy = 1*np.eye(sys.ny)       # Matriz de peso dos estados
-        self.R = 1*np.eye(sys.nu)        # Matriz de peso dos controles
-        self.Sy = 1*np.eye(sys.ny)       # Matriz de peso das variáveis de folga dos estados est
-        self.Si = 1*np.eye(sys.ny)       # Matriz de peso das variáveis de folga dos estados int
-
-        # Parâmetros do satisficing
-
-        self.gamma_e = gamma_e   # maximo custo do erro
-        self.gamma_du = gamma_du   # maximo custo de controle
-        self.gamma_syN = gamma_syN   # syN
-        self.gamma_siN = gamma_siN   # siN
+        self.Qy = kwargs.get('Q', np.eye(sys.ny))       # Matriz de peso dos estados
+        self.R = kwargs.get('R', np.eye(sys.nu))        # Matriz de peso dos controles
+        self.Sy = kwargs.get('Sy', np.eye(sys.ny))      # Matriz de peso das variáveis de folga dos estados est
+        self.Si = kwargs.get('Si', np.eye(sys.ny))       # Matriz de peso das variáveis de folga dos estados int
 
         self.Q_bar = []
        
         # symbolic variables
         self.dU = csd.MX.sym('du', self.nu)
+        self.dUk = []                           # will receive dU at each k
         self.X = csd.MX.sym('x', self.nx)
         self.U = csd.MX.sym('u', self.nu)
         self.Y = csd.MX.sym('y', self.ny)
@@ -81,8 +67,10 @@ class SIHMPCController(object):
         self.ViN_ant = csd.MX.sym('ViN_ant')
 
         self.F = self._DynamicF(self.sys, self.X, self.dU, self.U)
-        
-        self.prob, self.bounds, self.sobj, self.pred = self._OptimProbl()
+        self.V = []                             # sub-objetivos
+        self.X_pred, self.Y_pred, self.U_pred = self.prediction()
+
+        #self.prob, self.bounds, self.sobj, self.pred = self._OptimProbl()
 
     def _DynamicF(self, sys, X, dU, U):
         #return the casadi function that represent the dynamic system
@@ -105,6 +93,100 @@ class SIHMPCController(object):
                      ['xkp1', 'ykp1', 'ukp1'])
         return F
     
+
+    def subObj(self,**kwargs):
+        N = self.N
+        Ts = self.Ts
+        Ysp = self.Ysp
+        syN = self.syN
+        siN = self.siN
+        Y_pred = self.Y_pred
+        dUk = self.dUk
+
+        if 'Q' in kwargs:
+            Q = kwargs['Q']
+            if isinstance(Q, int): Q = [Q]
+        else:
+            Q = np.eye(self.sys.ny)
+
+        if 'y' in kwargs:
+            Vy = 0
+            inds = kwargs['y']
+            j = -1
+            for ind in inds:
+                j += 1
+                for k in range(0, N):
+                    # sub-objetivo em y
+                    Vy += (Y_pred[k][ind] - Ysp[ind] - syN[ind] - (k-N)*Ts*siN[ind])**2 *np.diag(Q)[j]
+            self.V.append(Vy)
+            return Vy
+
+        if 'du' in kwargs:
+            Vdu = 0
+            inds = kwargs['du']
+            j = -1
+            for ind in inds:
+                j += 1
+                for k in range(0, N):
+                    # sub-objetivo em du
+                    Vdu += dUk[k][ind]**2 * np.diag(Q)[j]
+            self.V.append(Vdu)
+            return Vdu
+
+        # custo das variáveis de folga
+        if 'syN' in kwargs:
+            VyN = 0
+            inds = kwargs['syN']
+            j = -1
+            for ind in inds:
+                j += 1
+                VyN += syN[ind]**2 * np.diag(Q)[j]
+            self.V.append(VyN)
+            return VyN
+
+        if 'siN' in kwargs:
+            ViN = 0
+            inds = kwargs['siN']
+            j = -1
+            for ind in inds:
+                j += 1
+                ViN += siN[ind]**2 * np.diag(Q)[j]
+            self.V.append(ViN)
+            return ViN
+                    
+        
+    def prediction(self):
+        N = self.N
+        F = self.F
+        X = self.X
+        U = self.U        
+        Xkp1 = X
+        Ukp1 = U        
+        X_pred = []
+        Y_pred = []
+        U_pred = []
+        dU_pred = []
+        w = []     # Variáveis de otimização
+        lbw = []   # Lower bound de w
+        ubw = []   # Upper bound de w
+
+        for k in range(0, N):
+            dU_k = csd.MX.sym('dU_' + str(k), self.nu)  # Variável para o controle em k
+            self.dUk.append(dU_k)
+        
+            # Adiciona a nova dinâmica
+            res = F(x0=Xkp1, u0=Ukp1, du0=dU_k)
+            Xkp1 = res['xkp1']
+            Ykp1 = res['ykp1']
+            Ukp1 = res['ukp1']
+            
+            X_pred += [Xkp1]
+            U_pred += [Ukp1]
+            Y_pred += [Ykp1]
+            dU_pred += [dU_k]
+
+        return X_pred, Y_pred, U_pred
+
     def _OptimProbl(self):
         # the symbolic optimization problem
 

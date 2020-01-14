@@ -1,45 +1,47 @@
 from opom import OPOM, TransferFunction
-from sihmpc import SIHMPCController
+from sihmpc import IHMPCController
 
 import time
 import numpy as np
 import matplotlib.pyplot as plt
+import control as ctl
 
 # %% Modelo OPOM
 
 Ts = 1.0
+
+# Transfer functions
 num11 = [2.5]
 den11 =[62, 1]   
 h11 = TransferFunction(num11, den11, delay=2)  # delay in seconds
-
 num12 = [1.5]
 den12 = [23*62, 23+62, 1]
 h12 = TransferFunction(num12, den12, delay=0)
-
 num21 = [1.4]
 den21 = [30*90, 30+90, 1]
 h21 = TransferFunction(num21, den21, delay=0)
-
 num22 = [2.8]
 den22 = [90, 1]
 h22 = TransferFunction(num22, den22)
 
-h = [[h11, h12], [h21, h22]]
+# General system
 
+h = [[h11, h12], [h21, h22]]
 sys = OPOM(h, Ts)
 
 # %% Controlador
+
 N = 10  # horizon in steps
-gamma_e = N*1.5**2
-gamma_du = N*0.5**2
-gamma_syN = 0.1**2
+c = IHMPCController(sys, N)
 
-c = SIHMPCController(sys, N, 
-                     gamma_e = gamma_e, 
-                     gamma_du = gamma_du, 
-                     gamma_syN = gamma_syN)
-
-mpc = c.MPC()
+# sub-objetivos 
+Q1 = 1
+Q2 = 2
+S = np.eye(2)
+c.subObj(y=[0], Q=Q1)
+c.subObj(y=[1], Q=Q2)
+c.subObj(du=[0,1])
+c.subObj(syN=[0,1], Q=S)
 
 # %% Closed loop
 
