@@ -377,7 +377,6 @@ class IHMPCController(object):
         U = self.U  
         
         Pesos = csd.vertcat(*self.Pesos)
-        #Pesos = self.Pesos
         #ViN_ant = self.ViN_ant
         
         indx = (self.N-1)*(self.nx+self.nu)
@@ -407,30 +406,31 @@ class IHMPCController(object):
         xsNp2 = Xknext[0:self.nxs]
         xiNp2 = Xknext[self.nxs+self.nxd:self.nxs+self.nxd+self.nxi]   
         
-        syNnext = xsNp2 - ysp
+        syNnext = xsNp2 - np.array(ysp).reshape(self.ny,1)
         siNnext = xiNp2
         
-        w_start = np.append(dustart, [[syNnext],[siNnext]])
+        w_start = np.append(dustart, syNnext)
+        w_start = np.append(w_start, siNnext)
         return w_start
 
 
-    def satWeights(self, x, w_start, ysp):
-        # custos seguintes estimados
-        pesos = []
-        #_, _, sobj, pred = self._OptimProbl()
-        sobj = self.sobj
+    # def satWeights(self, x, w_start, ysp):
+    #     # custos seguintes estimados
+    #     pesos = []
+    #     #_, _, sobj, pred = self._OptimProbl()
+    #     sobj = self.sobj
         
-        u = np.zeros(self.nu)   # because u is irrelevant
+    #     u = np.zeros(self.nu)   # because u is irrelevant
         
-        # sub-objectives
-        Vynext, Vdunext, VyNnext, ViNnext, Vtnext = sobj(x, u, w_start, ysp)
-        Vytnext = Vynext + Vtnext
+    #     # sub-objectives
+    #     Vynext, Vdunext, VyNnext, ViNnext, Vtnext = sobj(x, u, w_start, ysp)
+    #     Vytnext = Vynext + Vtnext
         
-        # py =  1/(self.gamma_e - np.clip(Vytnext, 0, 0.99*self.gamma_e))
-        # pdu = 1/(self.gamma_du - np.clip(Vdunext, 0, 0.99*self.gamma_du))
-        # pyN = 1/(self.gamma_syN - np.clip(VyNnext, 0, 0.99*self.gamma_syN))
-        # piN = 1/(self.gamma_siN - np.clip(ViNnext, 0, 0.99*self.gamma_siN))
+    #     # py =  1/(self.gamma_e - np.clip(Vytnext, 0, 0.99*self.gamma_e))
+    #     # pdu = 1/(self.gamma_du - np.clip(Vdunext, 0, 0.99*self.gamma_du))
+    #     # pyN = 1/(self.gamma_syN - np.clip(VyNnext, 0, 0.99*self.gamma_syN))
+    #     # piN = 1/(self.gamma_siN - np.clip(ViNnext, 0, 0.99*self.gamma_siN))
         
-        pesos = np.append(pesos,(py, pdu, pyN, piN))
-        return pesos
+    #     pesos = np.append(pesos,(py, pdu, pyN, piN))
+    #     return pesos
 

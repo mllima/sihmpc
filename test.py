@@ -66,16 +66,10 @@ tEnd = 500     	    # Tempo de simulação (seg)
 
 tocMPC = []
 
-ViNant = np.inf
-# pesos - inicialização dos pessos
-# py = 1/(c.gamma_e)
-# pdu = 1/(c.gamma_du)
-# pyN = 1/(c.gamma_syN)
-# piN = 1/(c.gamma_siN)
+ysp = [1, 0.5]
 
-ysp = 2.5
-#pesos = np.array([py, pdu, pyN, piN])
-pesos = np.array([1, 1, 1, 1])
+# pesos - inicialização dos pessos
+pesos = np.array([1, 1, 0.1, 100, 1])
 
 w0 = []
 lam_w0 = []
@@ -88,10 +82,9 @@ for k in np.arange(0, tEnd/Ts):
         
     # to test a change in the set-point    
     if k > (tEnd/2)/Ts: 
-        ysp = 5
+        ysp = [1, 0.25]
 
-    sol = mpc(x0=x, ySP=ysp, w0=w0, u0=u, pesos=pesos, 
-              Vant=ViNant, lam_w0=lam_w0, lam_g0=lam_g0)
+    sol = mpc(x0=x, ySP=ysp, w0=w0, u0=u, pesos=pesos, lam_w0=lam_w0, lam_g0=lam_g0)
     
     t2 = time.time()
     tocMPC += [t2-t1]
@@ -103,7 +96,8 @@ for k in np.arange(0, tEnd/Ts):
     du = sol['du_opt'][:, 0].full()
     duPlot += [du]
 
-    J = sol['J']
+    J = sol['J'].full()
+    JPlot += [J]
     # sobj = c.sobj(x0=x, u0=u, w0=w0, ysp=ysp)
     
     # Vy = sobj['Vy']
@@ -127,10 +121,10 @@ for k in np.arange(0, tEnd/Ts):
     w0 = c.warmStart(sol, ysp)
     
     du_warm = w0
-    new_pesos = c.satWeights(x, du_warm, ysp)
     
-    alfa = 0.9
-    pesos = alfa*pesos + (1-alfa)*new_pesos
+    # new_pesos = c.satWeights(x, du_warm, ysp)
+    # alfa = 0.9
+    # pesos = alfa*pesos + (1-alfa)*new_pesos
     
 print('Tempo de execução do MPC. Média: %2.3f s, Max: %2.3f s' %
                                     (np.mean(tocMPC), np.max(tocMPC)))
