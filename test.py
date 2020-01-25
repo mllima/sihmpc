@@ -34,19 +34,21 @@ sys = OPOM(h, Ts)
 N = 10  # horizon in steps
 c = IHMPCController(sys, N)
 
-# sub-objetivos 
+# sub-objectives
 Q1 = 1
 Q2 = 2
 S = np.eye(2)
 
 Vy1 = c.subObj(y=[0], Q=Q1)
-c.subObj(y=[1], Q=Q2)
-c.subObj(du=[0,1])
-c.subObj(syN=[0,1], Q=S)
-c.subObj(siN=[0,1], Q=S)
+Vy2 = c.subObj(y=[1], Q=Q2)
+Vdu = c.subObj(du=[0,1])
+VyN = c.subObj(syN=[0,1], Q=S)
+ViN = c.subObj(siN=[0,1], Q=S)
 
+# limits of the sub-objectives
 Vy1.lim(0,np.inf)
 
+# ihmpc
 mpc = c.MPC()
 
 # %% Closed loop

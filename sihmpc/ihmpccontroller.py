@@ -64,26 +64,28 @@ class IHMPCController(object):
         self.syN = csd.MX.sym('syN', self.ny)    # Variáveis de folga na saída
         self.siN = csd.MX.sym('siN', self.ny)    # Variável de folga terminal
         self.Pesos = []  #csd.MX.sym('Pesos', 4)
-        self.ViN_ant = csd.MX.sym('ViN_ant')
+        #self.ViN_ant = csd.MX.sym('ViN_ant')
 
         self.F = self._DynamicF(self.sys, self.X, self.dU, self.U)
         self.X_pred, self.Y_pred, self.U_pred, self.dU_pred = self.prediction()
-        self.Vt = self._terminalObj()
+        self.Vt = self.fObj(self._terminalObj(),1)
         self.V = [self.Vt]                             # sub-objetivos
         self.J = 0
 
         #self.prob, self.bounds, self.sobj, self.pred = self._OptimProbl()
 
+
     class fObj:
-        def __init__(self,V):
+        def __init__(self,V,w):
             self.V = V
             self.min = 0
             self.max = np.inf
-            self.weight = csd.MX.sym('w_' + str(l+1))  # peso do sub_objetivo
+            self.weight = w
 
         def lim(self, min, max):
             self.min = min
             self.max = max
+
 
     def subObj(self,**kwargs):
         N = self.N
@@ -109,11 +111,11 @@ class IHMPCController(object):
                 for k in range(0, N):
                     # sub-objetivo em y
                     Vy += (Y_pred[k][ind] - Ysp[ind] - syN[ind] - (k-N)*Ts*siN[ind])**2 *np.diag(Q)[j]
-            l = len(self.V)-1
-            Vy = self.fObj(Vy)
-            weight = Vy.weight
+            l = len(self.V)
+            weight = csd.MX.sym('w_' + str(l))  # peso do sub_objetivo
+            Vy = self.fObj(Vy, weight)
             self.Pesos.append(weight)
-            self.J += weight * Vy.V
+            self.J += weight * (Vy.V  + self.Vt.V)
             self.V.append(Vy)
             return Vy
 
@@ -126,11 +128,11 @@ class IHMPCController(object):
                 for k in range(0, N):
                     # sub-objetivo em du
                     Vdu += dU_pred[k][ind]**2 * np.diag(Q)[j]
-            l = len(self.V)-1
-            Vdu = self.fObj(Vdu)
-            weight = Vdu.weight
+            l = len(self.V)
+            weight = csd.MX.sym('w_' + str(l))  # peso do sub_objetivo
+            Vdu = self.fObj(Vdu, weight)
             self.Pesos.append(weight)
-            self.J += weight * Vdu
+            self.J += weight * Vdu.V
             self.V.append(Vdu)
             return Vdu
             
@@ -142,11 +144,11 @@ class IHMPCController(object):
             for ind in inds:
                 j += 1
                 VyN += syN[ind]**2 * np.diag(Q)[j]
-            l = len(self.V)-1
-            VyN = self.fObj(VyN)
-            weight = VyN.weight
+            l = len(self.V)
+            weight = csd.MX.sym('w_' + str(l))  # peso do sub_objetivo
+            VyN = self.fObj(VyN, weight)
             self.Pesos.append(weight)
-            self.J += weight * VyN
+            self.J += weight * VyN.V
             self.V.append(VyN)
             return VyN
 
@@ -156,14 +158,15 @@ class IHMPCController(object):
             j = -1
             for ind in inds:
                 j += 1
-                ViN += siN[ind]**2 * np.diag(Q)[j]
-            l = len(self.V)-1            
-            ViN = self.fObj(ViN)
-            weight = ViN.weight
+                ViN += siN[ind]**2 * np.diag(Q)[j]            
+            l = len(self.V)
+            weight = csd.MX.sym('w_' + str(l))  # peso do sub_objetivo
+            ViN = self.fObj(ViN, weight)
             self.Pesos.append(weight)
-            self.J += weight * ViN
+            self.J += weight * ViN.V
             self.V.append(ViN)
             return ViN
+
 
     def _DynamicF(self, sys, X, dU, U):
         #return the casadi function that represent the dynamic system
@@ -182,6 +185,7 @@ class IHMPCController(object):
                      ['xkp1', 'ykp1', 'ukp1'])
         return F
     
+
     def _terminalObj(self):
         
         # estado terminal
@@ -191,15 +195,11 @@ class IHMPCController(object):
  
         # Adição do custo terminal
         # Q terminal
-        #Q_lyap = self.sys.F.T.dot(self.sys.Psi.T).dot(self.Qy).dot(self.sys.Psi).dot(self.sys.F)
         Q_lyap = self.sys.F.T@self.sys.Psi.T@self.Qy@self.sys.Psi@self.sys.F
-        #Q_lyap = np.eye(self.nxd)
-        Q_bar = linalg.solve_discrete_lyapunov(self.sys.F, Q_lyap, method='bilinear')
+        Q_bar = solve_discrete_lyapunov(self.sys.F, Q_lyap, method='bilinear')
         Vt = csd.dot(XdN**2, csd.diag(Q_bar))
         self.Q_bar = Q_bar
         return Vt
-
-
                     
         
     def prediction(self):
@@ -253,9 +253,14 @@ class IHMPCController(object):
         Y_pred = self.Y_pred
         U_pred = self.U_pred
         dU_pred = self.dU_pred
+        J = self.J
+        Pesos = self.Pesos
         
-        w = [dU_pred, syN, siN]
-        g = [X_pred, U_pred]
+        w += dU_pred
+        w += [syN]
+        w += [siN]
+        g += X_pred
+        g += U_pred
 
         for _ in range(0, N):
             
@@ -292,12 +297,13 @@ class IHMPCController(object):
         lbg += [self.rslb]
         ubg += [self.rsub]
         
-        # restrições do Satisficing
-        g += [Vy, Vt, Vdu, VyN, ViN]
-        lbg += [0, 0, 0, 0, 0]
-        ViN_ant = self.ViN_ant
-        ubg += [np.inf, np.inf, np.inf, np.inf, ViN_ant]
-        
+        # restrições nos sub-objetivos
+        l = len(self.V)
+        for i in range(l-1):
+            g += [self.V[i+1].V]
+            lbg += [self.V[i+1].min]
+            ubg += [self.V[i+1].max]
+       
         # variáveis de folga
         lbw += [self.sylb]  	   # bound inferior na variável
         ubw += [self.syub]  	   # bound superior na variável
@@ -307,7 +313,7 @@ class IHMPCController(object):
 
         g = csd.vertcat(*g)
         w = csd.vertcat(*w)
-        p = csd.vertcat(X, Ysp, U, Pesos, ViN_ant)
+        p = csd.vertcat(X, Ysp, U, *Pesos)
         lbw = csd.vertcat(*lbw)
         ubw = csd.vertcat(*ubw)
         lbg = csd.vertcat(*lbg)
@@ -322,172 +328,11 @@ class IHMPCController(object):
                             ['x0', 'u0', 'du_opt'],
                             ['x_pred', 'y_pred', 'u_pred'])
 
-        sobj = csd.Function('sobj',[X, U, w, Ysp],
-                                   [Vy, Vdu, VyN, ViN, Vt],
-                                   ['x0', 'u0', 'w0', 'ysp'],
-                                   ['Vy', 'Vdu', 'VyN', 'ViN', 'Vt'])
-
         prob = {'f': J, 'x': w, 'g': g, 'p': p} 
         bounds = {'lbw': lbw, 'ubw': ubw, 'lbg': lbg, 'ubg': ubg}
 
-        return prob, bounds, sobj, pred
-    
-    # def _OptimProbl(self):
-    #     # the symbolic optimization problem
-
-    #     w = []     # Variáveis de otimização
-    #     lbw = []   # Lower bound de w
-    #     ubw = []   # Upper bound de w
-    #     g = []     # Restrições não lineares
-    #     lbg = []   # Lower bound de g
-    #     ubg = []   # Upper bound de g
-
-    #     # # Vy = 0   # Subobjetivo da referencia
-    #     # # Vdu = 0  # Subobjetivo do controle
-    #     # # VyN = 0  # Subobjetivo do atendimento à condição terminal do modo estacionário
-    #     # # ViN = 0  # Subobjetivo do atendimento à condição terminal do modo integral
-    #     # Vt = 0   # Subobjetivo do custo terminal
-    #     # J = 0    # Função objetivo
-        
-    #     N = self.N
-    #     Ts = self.Ts
-    #     Qy = self.Qy
-    #     R = self.R
-    #     Sy = self.Sy
-    #     Si = self.Si
-        
-        
-    #     Ysp = self.Ysp    # set-point
-    #     syN = self.syN    # Variáveis de folga na saída
-    #     siN = self.siN    # Variável de folga terminal
-    #     X = self.X
-    #     U = self.U        
-    #     Xkp1 = X
-    #     Ukp1 = U
-        
-    #     X_pred = []
-    #     Y_pred = []
-    #     U_pred = []
-    #     dU_pred = []
-                
-    #     F = self.F
-        
-    #     for k in range(0, N):
-    #         dU_k = csd.MX.sym('dU_' + str(k), self.nu)  # Variável para o controle em k
-            
-    #         # Adiciona duk nas variáveis de decisão
-    #         w += [dU_k]  	        # variável
-    #         lbw += [self.dulb]  	# bound inferior na variável
-    #         ubw += [self.duub]  	# bound superior na variável
-        
-    #         # Adiciona a nova dinâmica
-    #         res = F(x0=Xkp1, u0=Ukp1, du0=dU_k)
-    #         Xkp1 = res['xkp1']
-    #         Ykp1 = res['ykp1']
-    #         Ukp1 = res['ukp1']
-            
-    #         X_pred += [Xkp1]
-    #         U_pred += [Ukp1]
-    #         Y_pred += [Ykp1]
-    #         dU_pred += [dU_k]
-                
-    #         # Bounds em x
-    #         g += [Xkp1]
-    #         lbg += [self.xlb]
-    #         ubg += [self.xub]
-        
-    #         # Bounds em u
-    #         g += [Ukp1]
-    #         lbg += [self.ulb]
-    #         ubg += [self.uub]
-        
-    #         # Bounds em y (nenhuma)
-        
-    #         # Função objetivo
-    #         Vy += csd.dot((Ykp1 - Ysp - syN - (k-N)*Ts*siN)**2, csd.diag(Qy))
-    #         Vdu += csd.dot(dU_k**2, csd.diag(R))
-        
-    #     # custo das variáveis de folga
-    #     VyN = csd.dot(syN**2, csd.diag(Sy))
-    #     ViN = csd.dot(siN**2, csd.diag(Si))
-        
-    #     # estado terminal
-    #     XN = Xkp1  # terminal state
-    #     XsN = XN[0:self.nxs]
-    #     XiN = XN[self.nxs+self.nxd:self.nxs+self.nxd+self.nxi]
-    #     XdN = XN[self.nxs:self.nxs+self.nxd]
- 
-    #     # Adição do custo terminal
-    #     # Q terminal
-    #     #Q_lyap = self.sys.F.T.dot(self.sys.Psi.T).dot(self.Qy).dot(self.sys.Psi).dot(self.sys.F)
-    #     Q_lyap = self.sys.F.T@self.sys.Psi.T@self.Qy@self.sys.Psi@self.sys.F
-    #     #Q_lyap = np.eye(self.nxd)
-    #     Q_bar = sp.linalg.solve_discrete_lyapunov(self.sys.F, Q_lyap, method='bilinear')
-    #     Vt = csd.dot(XdN**2, csd.diag(Q_bar))
-    #     self.Q_bar = Q_bar
-        
-    #     # Restrições terminais do ihmpc
-        
-    #     res1 = XiN - siN
-    #     res2 = XsN - Ysp - syN
-        
-    #     # Restrição 1
-    #     g += [res1]
-    #     lbg += [self.rilb]
-    #     ubg += [self.riub]
-        
-    #     # Restrição 2
-    #     g += [res2]
-    #     lbg += [self.rslb]
-    #     ubg += [self.rsub]
-        
-    #     # restrições do Satisficing
-    #     g += [Vy, Vt, Vdu, VyN, ViN]
-    #     lbg += [0, 0, 0, 0, 0]
-    #     ViN_ant = self.ViN_ant
-    #     ubg += [np.inf, np.inf, np.inf, np.inf, ViN_ant]
-        
-    #     # variáveis de folga
-        
-    #     w += [syN]  	           # variávelJ, Vy, Vdu, VyN, ViN
-    #     lbw += [self.sylb]  	   # bound inferior na variável
-    #     ubw += [self.syub]  	   # bound superior na variável
-        
-    #     w += [siN]  	# variável
-    #     lbw += [self.silb]  	# bound inferior na variável
-    #     ubw += [self.siub]  	# bound superior na variável
-          
-    #     # custo total
-    #     Pesos = self.Pesos
-    #     J = Pesos[0]*(Vy + Vt) + Pesos[1]*Vdu + Pesos[2]*VyN + Pesos[3]*ViN
-
-    #     g = csd.vertcat(*g)
-    #     w = csd.vertcat(*w)
-    #     p = csd.vertcat(X, Ysp, U, Pesos, ViN_ant)
-    #     lbw = csd.vertcat(*lbw)
-    #     ubw = csd.vertcat(*ubw)
-    #     lbg = csd.vertcat(*lbg)
-    #     ubg = csd.vertcat(*ubg)
-        
-
-    #     X_pred = csd.vertcat(*X_pred)
-    #     Y_pred = csd.vertcat(*Y_pred)
-    #     U_pred = csd.vertcat(*U_pred)
-    #     pred = csd.Function('pred', [X, U, csd.vertcat(*dU_pred)], 
-    #                         [X_pred, Y_pred, U_pred],
-    #                         ['x0', 'u0', 'du_opt'],
-    #                         ['x_pred', 'y_pred', 'u_pred'])
-
-    #     sobj = csd.Function('sobj',[X, U, w, Ysp],
-    #                                [Vy, Vdu, VyN, ViN, Vt],
-    #                                ['x0', 'u0', 'w0', 'ysp'],
-    #                                ['Vy', 'Vdu', 'VyN', 'ViN', 'Vt'])
-
-    #     prob = {'f': J, 'x': w, 'g': g, 'p': p} 
-    #     bounds = {'lbw': lbw, 'ubw': ubw, 'lbg': lbg, 'ubg': ubg}
-
-    #     return prob, bounds, sobj, pred
-    
+        return prob, bounds, pred
+       
     
     def MPC(self):
         
@@ -498,9 +343,8 @@ class IHMPCController(object):
         opt['ipopt'] = ipopt
         
         # nlp solver
-        #prob, bounds, _, _ = self._OptimProbl()
-        prob = self.prob
-        bounds = self.bounds
+        prob, bounds, _ = self._OptimProbl()
+        
         solver = csd.nlpsol('solver', 'ipopt', prob, opt)
         
         p = prob['p']
@@ -523,7 +367,7 @@ class IHMPCController(object):
         # loop para retornar o resultado em matriz
         du_opt = []
         index = 0
-        for kk in range(0, self.N):
+        for _ in range(0, self.N):
             auxU = sol['x'][index:(index+self.nu)]
             du_opt = csd.horzcat(du_opt, auxU)
             index = index + self.nu
@@ -532,14 +376,15 @@ class IHMPCController(object):
         X = self.X
         U = self.U  
         
-        Pesos = self.Pesos
-        ViN_ant = self.ViN_ant
+        Pesos = csd.vertcat(*self.Pesos)
+        #Pesos = self.Pesos
+        #ViN_ant = self.ViN_ant
         
         indx = (self.N-1)*(self.nx+self.nu)
         MPC = csd.Function('MPC',
-            [W0, X, Ysp, U, LAM_W0, LAM_G0, Pesos, ViN_ant],
+            [W0, X, Ysp, U, LAM_W0, LAM_G0, Pesos],
             [sol['f'], du_opt, sol['x'], sol['lam_x'], sol['lam_g'], sol['g'], sol['g'][indx:indx+self.nx]],
-            ['w0', 'x0', 'ySP', 'u0', 'lam_w0', 'lam_g0', 'pesos', 'Vant'],
+            ['w0', 'x0', 'ySP', 'u0', 'lam_w0', 'lam_g0', 'pesos'],
             ['J','du_opt', 'w_opt', 'lam_w', 'lam_g', 'g', 'xN'])
 
         return MPC
