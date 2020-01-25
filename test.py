@@ -38,10 +38,16 @@ c = IHMPCController(sys, N)
 Q1 = 1
 Q2 = 2
 S = np.eye(2)
-c.subObj(y=[0], Q=Q1)
+
+Vy1 = c.subObj(y=[0], Q=Q1)
 c.subObj(y=[1], Q=Q2)
 c.subObj(du=[0,1])
 c.subObj(syN=[0,1], Q=S)
+c.subObj(siN=[0,1], Q=S)
+
+Vy1.lim(0,np.inf)
+
+mpc = c.MPC()
 
 # %% Closed loop
 
@@ -60,13 +66,14 @@ tocMPC = []
 
 ViNant = np.inf
 # pesos - inicialização dos pessos
-py = 1/(c.gamma_e)
-pdu = 1/(c.gamma_du)
-pyN = 1/(c.gamma_syN)
-piN = 1/(c.gamma_siN)
+# py = 1/(c.gamma_e)
+# pdu = 1/(c.gamma_du)
+# pyN = 1/(c.gamma_syN)
+# piN = 1/(c.gamma_siN)
 
 ysp = 2.5
-pesos = np.array([py, pdu, pyN, piN])
+#pesos = np.array([py, pdu, pyN, piN])
+pesos = np.array([1, 1, 1, 1])
 
 w0 = []
 lam_w0 = []
@@ -95,16 +102,16 @@ for k in np.arange(0, tEnd/Ts):
     duPlot += [du]
 
     J = sol['J']
-    sobj = c.sobj(x0=x, u0=u, w0=w0, ysp=ysp)
+    # sobj = c.sobj(x0=x, u0=u, w0=w0, ysp=ysp)
     
-    Vy = sobj['Vy']
-    Vt = sobj['Vt']
-    Vdu = sobj['Vdu']
-    VyN = sobj['VyN']
-    ViN = sobj['ViN']
-    Vyt = Vy + Vt
+    # Vy = sobj['Vy']
+    # Vt = sobj['Vt']
+    # Vdu = sobj['Vdu']
+    # VyN = sobj['VyN']
+    # ViN = sobj['ViN']
+    # Vyt = Vy + Vt
 
-    ViNant = ViN.full()[0][0]
+    # ViNant = ViN.full()[0][0]
 
     # ## Simula o sistema ###
     res = c.F(x0=x, du0=du, u0=u)
