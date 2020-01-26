@@ -11,15 +11,18 @@ from scipy.linalg import solve_discrete_lyapunov
 class IHMPCController(object):
     def __init__(self, sys, N, **kwargs):
 
+        # assert that sys is of type OPOM
         assert issubclass(type(sys), OPOM), 'the system (sys) must be of type OPOM'
         self.sys = sys
         self.Ts = sys.Ts
-        self.N = int(N)  # int(np.round(m/sys.Ts))  # horizonte de controle
+        self.N = int(N)  # horizonte de controle
 
+        # assert that the control horizon is greater than dead time
         assert (self.N > sys.theta_max),\
             'the control horizon should be greater than the maximal system dead time: {}'\
             .format(sys.theta_max)
 
+        # numbers
         self.nx = sys.nx     # Número de estados
         self.nu = sys.nu     # Número de manipuladas
         self.ny = sys.ny     # Número de saídas
@@ -29,7 +32,8 @@ class IHMPCController(object):
         self.nxi = sys.ny    # Número de estados integradores
         self.nxz = sys.nz    # Número de estados devido ao tempo morto
         assert(self.nx == self.nxs+self.nxd+self.nxi+self.nxz)
-                
+
+        #bounds        
         self.xlb = kwargs.get('xlb', np.ones(sys.nx)*-np.inf)      # Lower bound nos estados
         self.xub = kwargs.get('xub', np.ones(sys.nx)*np.inf)       # Upper bound nos estados
         self.ulb = kwargs.get('ulb', np.ones(sys.nu)*-np.inf)      # Lower bound do controle
@@ -46,6 +50,7 @@ class IHMPCController(object):
         self.rsub = kwargs.get('rsub', np.zeros(sys.ny))            # Upper bound na restrição terminal de xs
         self.rilb = kwargs.get('rilb', np.zeros(sys.ny))            # Lower bound na restrição terminal de xi
         self.riub = kwargs.get('riub', np.zeros(sys.ny))             # Upper bound na restrição terminal de xi
+        
         # A escolha dos pesos é bastante simplificada: em geral se escolhe peso 1
         self.Qy = kwargs.get('Q', np.eye(sys.ny))       # Matriz de peso dos estados
         self.R = kwargs.get('R', np.eye(sys.nu))        # Matriz de peso dos controles
@@ -56,31 +61,40 @@ class IHMPCController(object):
        
         # symbolic variables
         self.dU = csd.MX.sym('du', self.nu)
-        #self.dUk = []                           # will receive dU at each k
         self.X = csd.MX.sym('x', self.nx)
         self.U = csd.MX.sym('u', self.nu)
         self.Y = csd.MX.sym('y', self.ny)
         self.Ysp = csd.MX.sym('Ysp', self.ny)    # set-point
         self.syN = csd.MX.sym('syN', self.ny)    # Variáveis de folga na saída
         self.siN = csd.MX.sym('siN', self.ny)    # Variável de folga terminal
-        self.Pesos = []  #csd.MX.sym('Pesos', 4)
-        #self.ViN_ant = csd.MX.sym('ViN_ant')
-
+        self.Pesos = []
+        self.ViN_ant = []
+        
         self.F = self._DynamicF(self.sys, self.X, self.dU, self.U)
         self.X_pred, self.Y_pred, self.U_pred, self.dU_pred = self.prediction()
-        self.Vt = self.fObj(self._terminalObj(),1)
-        self.V = [self.Vt]                             # sub-objetivos
+        
+        # Terminal cost: standard sub-objectives
+        self.Vt = self.fObj(self._terminalObj(),1, 
+                            self.X, self.U, 
+                            np.append(self.dU_pred,[self.syN, self.siN]), 
+                            self.Ysp)
+
+        self.V = [self.Vt]                       # list of sub-objetives
         self.J = 0
 
         #self.prob, self.bounds, self.sobj, self.pred = self._OptimProbl()
 
 
     class fObj:
-        def __init__(self,V,w):
+        def __init__(self,V,w, X, U, var, Ysp):
             self.V = V
             self.min = 0
             self.max = np.inf
             self.weight = w
+            sol = csd.vertcat(*sol)     # solution = free variables
+            self.F = csd.Function('F', [X, U, var, Ysp], [V],
+                    ['x0', 'u0', 'var','ysp'],
+                    ['Value'])
 
         def lim(self, min, max):
             self.min = min
@@ -90,6 +104,8 @@ class IHMPCController(object):
     def subObj(self,**kwargs):
         N = self.N
         Ts = self.Ts
+        X = self.X
+        U = self.U
         Ysp = self.Ysp
         syN = self.syN
         siN = self.siN
@@ -112,12 +128,22 @@ class IHMPCController(object):
                     # sub-objetivo em y
                     Vy += (Y_pred[k][ind] - Ysp[ind] - syN[ind] - (k-N)*Ts*siN[ind])**2 *np.diag(Q)[j]
             l = len(self.V)
+            
             weight = csd.MX.sym('w_' + str(l))  # peso do sub_objetivo
-            Vy = self.fObj(Vy, weight)
+            Vy = self.fObj(Vy, weight, X, U, np.append(dU_pred,[syN, siN]), Ysp)
             self.Pesos.append(weight)
             self.J += weight * (Vy.V  + self.Vt.V)
             self.V.append(Vy)
-            return Vy
+
+            # associated sub-objectives
+            VyN = self.subObj(syN=kwargs['y'], Q=kwargs['Q'])
+            ViN = self.subObj(siN=kwargs['y'], Q=kwargs['Q'])
+
+            # ViN must be contractive
+            ViN_ant = csd.MX.sym('ViN_ant_' + str(l+2))
+            ViN.lim(0,ViN_ant)
+            self.ViN_ant.append(ViN_ant)
+            return Vy, VyN, ViN
 
         if 'du' in kwargs:
             Vdu = 0
@@ -130,7 +156,7 @@ class IHMPCController(object):
                     Vdu += dU_pred[k][ind]**2 * np.diag(Q)[j]
             l = len(self.V)
             weight = csd.MX.sym('w_' + str(l))  # peso do sub_objetivo
-            Vdu = self.fObj(Vdu, weight)
+            Vdu = self.fObj(Vdu, weight, X, U, np.append(dU_pred,[syN, siN]), Ysp)
             self.Pesos.append(weight)
             self.J += weight * Vdu.V
             self.V.append(Vdu)
@@ -146,7 +172,7 @@ class IHMPCController(object):
                 VyN += syN[ind]**2 * np.diag(Q)[j]
             l = len(self.V)
             weight = csd.MX.sym('w_' + str(l))  # peso do sub_objetivo
-            VyN = self.fObj(VyN, weight)
+            VyN = self.fObj(VyN, weight, X, U, np.append(dU_pred,[syN, siN]), Ysp)
             self.Pesos.append(weight)
             self.J += weight * VyN.V
             self.V.append(VyN)
@@ -161,7 +187,7 @@ class IHMPCController(object):
                 ViN += siN[ind]**2 * np.diag(Q)[j]            
             l = len(self.V)
             weight = csd.MX.sym('w_' + str(l))  # peso do sub_objetivo
-            ViN = self.fObj(ViN, weight)
+            ViN = self.fObj(ViN, weight, X, U, np.append(dU_pred,[syN, siN]), Ysp)
             self.Pesos.append(weight)
             self.J += weight * ViN.V
             self.V.append(ViN)
@@ -255,6 +281,7 @@ class IHMPCController(object):
         dU_pred = self.dU_pred
         J = self.J
         Pesos = self.Pesos
+        ViN_ant = self.ViN_ant
         
         w += dU_pred
         w += [syN]
@@ -313,13 +340,12 @@ class IHMPCController(object):
 
         g = csd.vertcat(*g)
         w = csd.vertcat(*w)
-        p = csd.vertcat(X, Ysp, U, *Pesos)
+        p = csd.vertcat(X, Ysp, U, *Pesos, *ViN_ant)
         lbw = csd.vertcat(*lbw)
         ubw = csd.vertcat(*ubw)
         lbg = csd.vertcat(*lbg)
         ubg = csd.vertcat(*ubg)
         
-
         X_pred = csd.vertcat(*X_pred)
         Y_pred = csd.vertcat(*Y_pred)
         U_pred = csd.vertcat(*U_pred)
@@ -334,7 +360,7 @@ class IHMPCController(object):
         return prob, bounds, pred
        
     
-    def MPC(self):
+    def _MPC(self):
         
         opt = {'expand': False, 'jit': False,
                 'verbose_init': 0, 'print_time': False}
@@ -377,18 +403,21 @@ class IHMPCController(object):
         U = self.U  
         
         Pesos = csd.vertcat(*self.Pesos)
-        #ViN_ant = self.ViN_ant
+        ViN_ant = csd.vertcat(*self.ViN_ant)
         
         indx = (self.N-1)*(self.nx+self.nu)
         MPC = csd.Function('MPC',
-            [W0, X, Ysp, U, LAM_W0, LAM_G0, Pesos],
+            [W0, X, Ysp, U, LAM_W0, LAM_G0, Pesos, ViN_ant],
             [sol['f'], du_opt, sol['x'], sol['lam_x'], sol['lam_g'], sol['g'], sol['g'][indx:indx+self.nx]],
-            ['w0', 'x0', 'ySP', 'u0', 'lam_w0', 'lam_g0', 'pesos'],
+            ['w0', 'x0', 'ySP', 'u0', 'lam_w0', 'lam_g0', 'pesos', 'ViN_ant'],
             ['J','du_opt', 'w_opt', 'lam_w', 'lam_g', 'g', 'xN'])
 
         return MPC
     
-    
+    def mpc(self, x0, ySP, w0, u0, pesos, lam_w0, lam_g0, ViN_ant=self.ViNant):
+        sol = self._MPC(x0=x0, ySP=ySP, w0=w0, u0=u0, pesos=pesos, lam_w0=lam_w0, lam_g0=lam_g0, ViN_ant=ViN_ant)
+        return sol
+
     def warmStart(self, sol, ysp):
         w_start = []
         w0 = sol['w_opt'][:]

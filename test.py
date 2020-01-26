@@ -37,19 +37,17 @@ c = IHMPCController(sys, N)
 # sub-objectives
 Q1 = 1
 Q2 = 2
-S = np.eye(2)
+R = np.eye(2)
 
-Vy1 = c.subObj(y=[0], Q=Q1)
-Vy2 = c.subObj(y=[1], Q=Q2)
-Vdu = c.subObj(du=[0,1])
-VyN = c.subObj(syN=[0,1], Q=S)
-ViN = c.subObj(siN=[0,1], Q=S)
+Vy1, Vy1N, Vi1N = c.subObj(y=[0], Q=Q1)
+Vy2, Vy2N, Vi2N = c.subObj(y=[1], Q=Q2)
+Vdu = c.subObj(du=[0,1], Q=R)
 
 # limits of the sub-objectives
 Vy1.lim(0,np.inf)
 
 # ihmpc
-mpc = c.MPC()
+# mpc = c.MPC()
 
 # %% Closed loop
 
