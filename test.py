@@ -44,7 +44,7 @@ Vy2, Vy2N, Vi2N = c.subObj(y=[1], Q=Q2)
 Vdu = c.subObj(du=[0,1], Q=R)
 
 # limits of the sub-objectives
-Vy1.lim(0,np.inf)
+# Vy1.lim(0,np.inf)
 
 # ihmpc
 # mpc = c.MPC()
@@ -67,7 +67,7 @@ tocMPC = []
 ysp = [1, 0.5]
 
 # pesos - inicialização dos pessos
-pesos = np.array([1, 1, 0.1, 100, 1])
+pesos = np.array([1, 1, 1, 1, 1, 1, 1])
 
 w0 = []
 lam_w0 = []
@@ -82,7 +82,7 @@ for k in np.arange(0, tEnd/Ts):
     if k > (tEnd/2)/Ts: 
         ysp = [1, 0.25]
 
-    sol = mpc(x0=x, ySP=ysp, w0=w0, u0=u, pesos=pesos, lam_w0=lam_w0, lam_g0=lam_g0)
+    sol = c.mpc(x0=x, ySP=ysp, w0=w0, u0=u, pesos=pesos, lam_w0=lam_w0, lam_g0=lam_g0)
     
     t2 = time.time()
     tocMPC += [t2-t1]

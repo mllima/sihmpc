@@ -67,9 +67,11 @@ class IHMPCController(object):
         self.Ysp = csd.MX.sym('Ysp', self.ny)    # set-point
         self.syN = csd.MX.sym('syN', self.ny)    # Variáveis de folga na saída
         self.siN = csd.MX.sym('siN', self.ny)    # Variável de folga terminal
+
         self.Pesos = []
         self.ViN_ant = []
-        
+        self.ViNant = []
+                
         self.F = self._DynamicF(self.sys, self.X, self.dU, self.U)
         self.X_pred, self.Y_pred, self.U_pred, self.dU_pred = self.prediction()
         
@@ -91,7 +93,7 @@ class IHMPCController(object):
             self.min = 0
             self.max = np.inf
             self.weight = w
-            sol = csd.vertcat(*sol)     # solution = free variables
+            var = csd.vertcat(*var)     # var: decision variables
             self.F = csd.Function('F', [X, U, var, Ysp], [V],
                     ['x0', 'u0', 'var','ysp'],
                     ['Value'])
@@ -143,6 +145,7 @@ class IHMPCController(object):
             ViN_ant = csd.MX.sym('ViN_ant_' + str(l+2))
             ViN.lim(0,ViN_ant)
             self.ViN_ant.append(ViN_ant)
+            self.ViNant.append(0)
             return Vy, VyN, ViN
 
         if 'du' in kwargs:
@@ -414,8 +417,12 @@ class IHMPCController(object):
 
         return MPC
     
-    def mpc(self, x0, ySP, w0, u0, pesos, lam_w0, lam_g0, ViN_ant=self.ViNant):
-        sol = self._MPC(x0=x0, ySP=ySP, w0=w0, u0=u0, pesos=pesos, lam_w0=lam_w0, lam_g0=lam_g0, ViN_ant=ViN_ant)
+    def mpc(self, x0, ySP, w0, u0, pesos, lam_w0, lam_g0, ViN_ant=[]):
+        MPC = self._MPC()
+        if ViN_ant == []:
+            ViN_ant = self.ViNant
+        sol = MPC(x0=x0, ySP=ySP, w0=w0, u0=u0, pesos=pesos, lam_w0=lam_w0, lam_g0=lam_g0, ViN_ant=ViN_ant)
+        # falta atualizar self.ViNant
         return sol
 
     def warmStart(self, sol, ysp):
