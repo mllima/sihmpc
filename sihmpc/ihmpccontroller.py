@@ -67,10 +67,6 @@ class IHMPCController(object):
         self.Ysp = csd.MX.sym('Ysp', self.ny)    # set-point
         self.syN = csd.MX.sym('syN', self.ny)    # Variáveis de folga na saída
         self.siN = csd.MX.sym('siN', self.ny)    # Variável de folga terminal
-
-        self.Pesos = []
-        self.ViN_ant = []
-        self.ViNant = []
                 
         self.F = self._DynamicF(self.sys, self.X, self.dU, self.U)
         self.X_pred, self.Y_pred, self.U_pred, self.dU_pred = self.prediction()
@@ -81,7 +77,14 @@ class IHMPCController(object):
                             np.append(self.dU_pred,[self.syN, self.siN]), 
                             self.Ysp)
 
+        # lists
         self.V = [self.Vt]                       # list of sub-objetives
+        self.F_ViN = []                          # list of ViN's functions
+        self.Pesos = []
+        self.ViN_ant = []
+        self.ViNant = []
+
+        # total cost
         self.J = 0
 
         #self.prob, self.bounds, self.sobj, self.pred = self._OptimProbl()
@@ -140,7 +143,7 @@ class IHMPCController(object):
             # associated sub-objectives
             VyN = self.subObj(syN=kwargs['y'], Q=kwargs['Q'])
             ViN = self.subObj(siN=kwargs['y'], Q=kwargs['Q'])
-#            #self.F_VyN = VyN.F
+            self.F_ViN.append(ViN.F)
 
             # ViN must be contractive
             ViN_ant = csd.MX.sym('ViN_ant_' + str(l+2))
@@ -424,9 +427,9 @@ class IHMPCController(object):
             ViN_ant = self.ViNant
         sol = MPC(x0=x0, ySP=ySP, w0=w0, u0=u0, pesos=pesos, lam_w0=lam_w0, lam_g0=lam_g0, ViN_ant=ViN_ant)
         # falta atualizar self.ViNant
-        l = len(self.ViN_ant)
+        l = len(self.F_ViN)
         for i in range(l):
-            self.ViNant += self.ViN_ant[i].F(sol['x'], sol['u'], sol['w'], ysp)]         
+            self.ViNant += self.F_ViN[i]([], [], sol['w_opt'], [])        
         return sol
 
     def warmStart(self, sol, ysp):
