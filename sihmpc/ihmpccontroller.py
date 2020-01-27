@@ -140,12 +140,13 @@ class IHMPCController(object):
             # associated sub-objectives
             VyN = self.subObj(syN=kwargs['y'], Q=kwargs['Q'])
             ViN = self.subObj(siN=kwargs['y'], Q=kwargs['Q'])
+#            #self.F_VyN = VyN.F
 
             # ViN must be contractive
             ViN_ant = csd.MX.sym('ViN_ant_' + str(l+2))
             ViN.lim(0,ViN_ant)
             self.ViN_ant.append(ViN_ant)
-            self.ViNant.append(0)
+            self.ViNant.append(np.inf)
             return Vy, VyN, ViN
 
         if 'du' in kwargs:
@@ -423,6 +424,9 @@ class IHMPCController(object):
             ViN_ant = self.ViNant
         sol = MPC(x0=x0, ySP=ySP, w0=w0, u0=u0, pesos=pesos, lam_w0=lam_w0, lam_g0=lam_g0, ViN_ant=ViN_ant)
         # falta atualizar self.ViNant
+        l = len(self.ViN_ant)
+        for i in range(l):
+            self.ViNant += self.ViN_ant[i].F(sol['x'], sol['u'], sol['w'], ysp)]         
         return sol
 
     def warmStart(self, sol, ysp):
