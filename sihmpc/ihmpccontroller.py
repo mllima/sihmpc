@@ -378,18 +378,8 @@ class IHMPCController(object):
                   'warm_start_init_point': 'yes'}
         opt['ipopt'] = ipopt
         
-        Ysp = self.Ysp
-        X = self.X
-        U = self.U  
-        Pesos = csd.vertcat(*self.Pesos)
-        ViN_ant = csd.vertcat(*self.ViN_ant)
-
-        # nlp solver
+        # optimization problem
         prob, bounds, pred = self._OptimProbl()
-
-        solver = csd.nlpsol('solver', 'ipopt', prob, opt)
-        #x_pred, y_pred, u_pred = pred(X,)
-
         p = prob['p']
         lbw = bounds['lbw']
         ubw = bounds['ubw']
@@ -399,16 +389,15 @@ class IHMPCController(object):
         dim_w = prob['x'].shape[0]
         dim_g = prob['g'].shape[0]
         
-        W0 = csd.MX.sym('W0', dim_w )
-        # multiplicadores de lagrange - initial guess
-        LAM_W0 = csd.MX.sym('LW0', dim_w)  
+        W0 = csd.MX.sym('W0', dim_w )        
+        LAM_W0 = csd.MX.sym('LW0', dim_w)  # multiplicadores de lagrange - initial guess
         LAM_G0 = csd.MX.sym('LG0', dim_g)
 
+        # nlp solver
+        solver = csd.nlpsol('solver', 'ipopt', prob, opt)
         sol = solver(x0=W0, lbx=lbw, ubx=ubw, lbg=lbg, ubg=ubg, p=p,
                   lam_x0=LAM_W0, lam_g0=LAM_G0)
 
-        x_pred, y_pred, u_pred = pred(X,U,sol['x'][:-2*self.ny])
-      
         # loop para retornar o resultado em matriz
         du_opt = []
         index = 0
@@ -416,7 +405,14 @@ class IHMPCController(object):
             auxU = sol['x'][index:(index+self.nu)]
             du_opt = csd.horzcat(du_opt, auxU)
             index = index + self.nu
-        
+
+        # MPC function
+        Ysp = self.Ysp
+        X = self.X
+        U = self.U  
+        Pesos = csd.vertcat(*self.Pesos)
+        ViN_ant = csd.vertcat(*self.ViN_ant)     
+        x_pred, y_pred, u_pred = pred(X,U,sol['x'][:-2*self.ny])   # predicted values
         MPC = csd.Function('MPC',
             [W0, X, Ysp, U, LAM_W0, LAM_G0, Pesos, ViN_ant],
             [sol['f'], du_opt, sol['x'], sol['lam_x'], sol['lam_g'], sol['g'], x_pred, y_pred, u_pred],

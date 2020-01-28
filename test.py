@@ -16,18 +16,20 @@ Ts = 1.0
 num11 = [2.5]
 den11 =[62, 1]   
 h11 = TransferFunction(num11, den11, delay=2)  # delay in seconds
+
 num12 = [1.5]
 den12 = [23*62, 23+62, 1]
 h12 = TransferFunction(num12, den12, delay=0)
+
 num21 = [1.4]
 den21 = [30*90, 30+90, 1]
 h21 = TransferFunction(num21, den21, delay=0)
+
 num22 = [2.8]
 den22 = [90, 1]
 h22 = TransferFunction(num22, den22)
 
 # General system
-
 h = [[h11, h12], [h21, h22]]
 sys = OPOM(h, Ts)
 
@@ -63,7 +65,7 @@ tEnd = 500     	    # Tempo de simulação (seg)
 
 tocMPC = []
 
-ysp = [1, 0.5]
+ysp = [1, 1]
 
 # pesos - inicialização dos pessos
 pesos = np.array([1, 100, 1, 1, 100, 1, 0.01])
@@ -81,7 +83,7 @@ for k in np.arange(0, tEnd/Ts):
     if k > (tEnd/2)/Ts: 
         ysp = [1, 0.25]
 
-    sol = c.mpc(x0=x, ySP=ysp, w0=w0, u0=u, pesos=pesos, lam_w0=lam_w0, lam_g0=lam_g0) #, ViN_ant=np.inf)
+    sol = c.mpc(x0=x, ySP=ysp, w0=w0, u0=u, pesos=pesos, lam_w0=lam_w0, lam_g0=lam_g0, ViN_ant=[])
     
     t2 = time.time()
     tocMPC += [t2-t1]
@@ -97,12 +99,17 @@ for k in np.arange(0, tEnd/Ts):
     JPlot += [J]
     # sobj = c.sobj(x0=x, u0=u, w0=w0, ysp=ysp)
     
-    # Vy = sobj['Vy']
-    # Vt = sobj['Vt']
-    # Vdu = sobj['Vdu']
-    # VyN = sobj['VyN']
-    # ViN = sobj['ViN']
-    # Vyt = Vy + Vt
+    import pdb
+    pdb.set_trace()
+
+    # sub-objectives values
+    vy1 = Vy1.F(x, u, w0, ysp)
+    vy1N = Vy1N.F(x, u, w0, ysp)
+    vi1N = Vi1N.F(x, u, w0, ysp)
+    vy2 = Vy2.F(x, u, w0, ysp)
+    vy2N = Vy2N.F(x, u, w0, ysp)
+    vi2N = Vi2N.F(x, u, w0, ysp)
+    vdu = Vdu.F(x, u, w0, ysp)
 
     # ViNant = ViN.full()[0][0]
 
