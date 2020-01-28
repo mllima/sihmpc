@@ -115,6 +115,7 @@ class IHMPCController(object):
             self.V = V
             self.min = 0
             self.max = np.inf
+            self.gamma = np.inf
             self.weight = w
             var = csd.vertcat(*var)     # var: decision variables
             self.F = csd.Function('F', [X, U, var, Ysp], [V],
@@ -124,6 +125,9 @@ class IHMPCController(object):
         def lim(self, min, max):
             self.min = min
             self.max = max
+
+        def satLim(self, gamma):
+          self.gamma = gamma
 
 
     def subObj(self,**kwargs):
@@ -463,23 +467,14 @@ class IHMPCController(object):
         return w_start
 
 
-    # def satWeights(self, x, w_start, ysp):
-    #     # custos seguintes estimados
-    #     pesos = []
-    #     #_, _, sobj, pred = self._OptimProbl()
-    #     sobj = self.sobj
-        
-    #     u = np.zeros(self.nu)   # because u is irrelevant
-        
-    #     # sub-objectives
-    #     Vynext, Vdunext, VyNnext, ViNnext, Vtnext = sobj(x, u, w_start, ysp)
-    #     Vytnext = Vynext + Vtnext
-        
-    #     # py =  1/(self.gamma_e - np.clip(Vytnext, 0, 0.99*self.gamma_e))
-    #     # pdu = 1/(self.gamma_du - np.clip(Vdunext, 0, 0.99*self.gamma_du))
-    #     # pyN = 1/(self.gamma_syN - np.clip(VyNnext, 0, 0.99*self.gamma_syN))
-    #     # piN = 1/(self.gamma_siN - np.clip(ViNnext, 0, 0.99*self.gamma_siN))
-        
-    #     pesos = np.append(pesos,(py, pdu, pyN, piN))
-    #     return pesos
+    def satWeights(self, x, u, w_start, ysp):
+        # custos seguintes estimados
+        pesos = []
+        l = len(self.V)-1
+        for i in range(l):
+          Vnext = self.V[i+1].F(x, u, w_start, ysp)
+          gamma = self.V[i+1].gamma
+          w = 1/(gamma - np.clip(Vnext, 0, 0.99*gamma))
+          pesos = np.append(pesos, w)
+        return pesos
 

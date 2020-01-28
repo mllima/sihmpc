@@ -49,7 +49,16 @@ Vy2, Vy2N, Vi2N = c.subObj(y=[1], Q=Q2)
 Vdu = c.subObj(du=[0,1], Q=R)
 
 # limits of the sub-objectives
-# Vy1.lim(0,np.inf)
+# Vy1.lim(0, np.inf)
+
+# satisficing limits 
+Vy1.satLim(N*0.5**2)
+Vy2.satLim(N*0.5**2)
+Vdu.satLim(N*1.5**2)
+Vy1N.satLim(0.1**2)
+Vy2N.satLim(0.1**2)
+Vi1N.satLim(0.1**2)
+Vi2N.satLim(0.1**2)
 
 # %% Closed loop
 JPlot = []
@@ -97,10 +106,6 @@ for k in np.arange(0, tEnd/Ts):
 
     J = sol['J'].full()
     JPlot += [J]
-    # sobj = c.sobj(x0=x, u0=u, w0=w0, ysp=ysp)
-    
-    import pdb
-    pdb.set_trace()
 
     # sub-objectives values
     vy1 = Vy1.F(x, u, w0, ysp)
@@ -126,9 +131,12 @@ for k in np.arange(0, tEnd/Ts):
     
     du_warm = w0
     
-    # new_pesos = c.satWeights(x, du_warm, ysp)
-    # alfa = 0.9
-    # pesos = alfa*pesos + (1-alfa)*new_pesos
+    # import pdb
+    # pdb.set_trace()
+
+    new_pesos = c.satWeights(x, u, du_warm, ysp)
+    alfa = 0.7
+    pesos = alfa*pesos + (1-alfa)*new_pesos
     
 print('Tempo de execução do MPC. Média: %2.3f s, Max: %2.3f s' %
                                     (np.mean(tocMPC), np.max(tocMPC)))
