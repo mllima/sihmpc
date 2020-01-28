@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
 from opom import OPOM, TransferFunction
@@ -39,18 +38,16 @@ c = IHMPCController(sys, N)
 
 # sub-objectives
 Q1 = 1
-Q2 = 2
+Q2 = 1
 R = np.eye(2)
+Q1 = np.eye(2)
 
-Vy1, Vy1N, Vi1N = c.subObj(y=[0], Q=Q1)
-Vy2, Vy2N, Vi2N = c.subObj(y=[1], Q=Q2)
+Vy1, Vy1N, Vi1N = c.subObj(y=[0,1], Q=Q1)
+#Vy2, Vy2N, Vi2N = c.subObj(y=[1], Q=Q2)
 Vdu = c.subObj(du=[0,1], Q=R)
 
 # limits of the sub-objectives
 # Vy1.lim(0,np.inf)
-
-# ihmpc
-# mpc = c.MPC()
 
 # %% Closed loop
 
@@ -70,7 +67,7 @@ tocMPC = []
 ysp = [1, 0.5]
 
 # pesos - inicialização dos pessos
-pesos = np.array([1, 1, 1, 1, 1, 1, 1])
+pesos = np.array([1, 100, 1, 0.01])
 
 w0 = []
 lam_w0 = []
@@ -85,7 +82,7 @@ for k in np.arange(0, tEnd/Ts):
     if k > (tEnd/2)/Ts: 
         ysp = [1, 0.25]
 
-    sol = c.mpc(x0=x, ySP=ysp, w0=w0, u0=u, pesos=pesos, lam_w0=lam_w0, lam_g0=lam_g0)
+    sol = c.mpc(x0=x, ySP=ysp, w0=w0, u0=u, pesos=pesos, lam_w0=lam_w0, lam_g0=lam_g0) #, ViN_ant=np.inf)
     
     t2 = time.time()
     tocMPC += [t2-t1]
@@ -138,6 +135,7 @@ yPlot = np.hstack(yPlot)
 duPlot = np.hstack(duPlot)
 uPlot = np.hstack(uPlot)
 xPlot = np.hstack(xPlot)
+JPlot = np.hstack(JPlot)
 pesosPlot = np.array(pesosPlot)
 
 fig1 = plt.figure(1)
@@ -213,4 +211,10 @@ plt.grid()
 plt.legend()
 plt.show()
 #plt.savefig("SisoSIHMPWeigthVar.png")
+
+fig4 = plt.figure(4)
+fig4.suptitle("Total Cost")
+fig4.text(0.5, 0.04, 'Time', ha='center', va='center')
+plt.plot(t,JPlot.T)
+plt.show()
 

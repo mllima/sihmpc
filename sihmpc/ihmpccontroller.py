@@ -51,16 +51,15 @@ class IHMPCController(object):
         self.rilb = kwargs.get('rilb', np.zeros(sys.ny))            # Lower bound na restrição terminal de xi
         self.riub = kwargs.get('riub', np.zeros(sys.ny))             # Upper bound na restrição terminal de xi
         
-        # A escolha dos pesos é bastante simplificada: em geral se escolhe peso 1
+        # # A escolha dos pesos é bastante simplificada: em geral se escolhe peso 1
         self.Qy = kwargs.get('Q', np.eye(sys.ny))       # Matriz de peso dos estados
-        self.R = kwargs.get('R', np.eye(sys.nu))        # Matriz de peso dos controles
-        self.Sy = kwargs.get('Sy', np.eye(sys.ny))      # Matriz de peso das variáveis de folga dos estados est
-        self.Si = kwargs.get('Si', np.eye(sys.ny))       # Matriz de peso das variáveis de folga dos estados int
+        # self.R = kwargs.get('R', np.eye(sys.nu))        # Matriz de peso dos controles
+        # self.Sy = kwargs.get('Sy', np.eye(sys.ny))      # Matriz de peso das variáveis de folga dos estados est
+        # self.Si = kwargs.get('Si', np.eye(sys.ny))       # Matriz de peso das variáveis de folga dos estados int
 
         self.Q_bar = []
        
         # symbolic variables
-        self.dU = csd.MX.sym('du', self.nu)
         self.X = csd.MX.sym('x', self.nx)
         self.U = csd.MX.sym('u', self.nu)
         self.Y = csd.MX.sym('y', self.ny)
@@ -68,7 +67,7 @@ class IHMPCController(object):
         self.syN = csd.MX.sym('syN', self.ny)    # Variáveis de folga na saída
         self.siN = csd.MX.sym('siN', self.ny)    # Variável de folga terminal
                 
-        self.F = self._DynamicF(self.sys, self.X, self.dU, self.U)
+        self.F = self._DynamicF()
         self.X_pred, self.Y_pred, self.U_pred, self.dU_pred = self.prediction()
         
         # Terminal cost: standard sub-objectives
@@ -87,7 +86,28 @@ class IHMPCController(object):
         # total cost
         self.J = 0
 
-        #self.prob, self.bounds, self.sobj, self.pred = self._OptimProbl()
+
+    def _DynamicF(self):
+        #return the casadi function that represent the dynamic system
+        
+        sys = self.sys
+        X = csd.MX.sym('x', self.nx)
+        U = csd.MX.sym('u', self.nu)
+        dU = csd.MX.sym('du', self.nu)
+
+        A = sys.A
+        B = sys.B
+        C = sys.C
+        D = sys.D
+        
+        Xkp1 = csd.mtimes(A, X) + csd.mtimes(B, dU)
+        Ykp1 = csd.mtimes(C, Xkp1) + csd.mtimes(D, dU)
+        Ukp1 = U + dU
+
+        F = csd.Function('F', [X, U, dU], [Xkp1, Ykp1, Ukp1],
+                     ['x0', 'u0', 'du0'],
+                     ['xkp1', 'ykp1', 'ukp1'])
+        return F
 
 
     class fObj:
@@ -199,24 +219,6 @@ class IHMPCController(object):
             self.J += weight * ViN.V
             self.V.append(ViN)
             return ViN
-
-
-    def _DynamicF(self, sys, X, dU, U):
-        #return the casadi function that represent the dynamic system
-        
-        A = sys.A
-        B = sys.B
-        C = sys.C
-        D = sys.D
-        
-        Xkp1 = csd.mtimes(A, X) + csd.mtimes(B, dU)
-        Ykp1 = csd.mtimes(C, Xkp1) + csd.mtimes(D, dU)
-        Ukp1 = U + dU
-
-        F = csd.Function('F', [X, U, dU], [Xkp1, Ykp1, Ukp1],
-                     ['x0', 'u0', 'du0'],
-                     ['xkp1', 'ykp1', 'ukp1'])
-        return F
     
 
     def _terminalObj(self):
@@ -291,8 +293,6 @@ class IHMPCController(object):
         ViN_ant = self.ViN_ant
         
         w += dU_pred
-        w += [syN]
-        w += [siN]
         g += X_pred
         g += U_pred
 
@@ -339,6 +339,9 @@ class IHMPCController(object):
             ubg += [self.V[i+1].max]
        
         # variáveis de folga
+        w += [syN]
+        w += [siN]
+
         lbw += [self.sylb]  	   # bound inferior na variável
         ubw += [self.syub]  	   # bound superior na variável
 
@@ -375,11 +378,18 @@ class IHMPCController(object):
                   'warm_start_init_point': 'yes'}
         opt['ipopt'] = ipopt
         
+        Ysp = self.Ysp
+        X = self.X
+        U = self.U  
+        Pesos = csd.vertcat(*self.Pesos)
+        ViN_ant = csd.vertcat(*self.ViN_ant)
+
         # nlp solver
-        prob, bounds, _ = self._OptimProbl()
+        prob, bounds, pred = self._OptimProbl()
         
         solver = csd.nlpsol('solver', 'ipopt', prob, opt)
-        
+        #x_pred, y_pred, u_pred = pred(X,)
+
         p = prob['p']
         lbw = bounds['lbw']
         ubw = bounds['ubw']
@@ -396,7 +406,8 @@ class IHMPCController(object):
         
         sol = solver(x0=W0, lbx=lbw, ubx=ubw, lbg=lbg, ubg=ubg, p=p,
                   lam_x0=LAM_W0, lam_g0=LAM_G0)
-        
+        x_pred, y_pred, u_pred = pred(X,U,W0[:-2*self.ny])
+
         # loop para retornar o resultado em matriz
         du_opt = []
         index = 0
@@ -404,33 +415,29 @@ class IHMPCController(object):
             auxU = sol['x'][index:(index+self.nu)]
             du_opt = csd.horzcat(du_opt, auxU)
             index = index + self.nu
-
-        Ysp = self.Ysp
-        X = self.X
-        U = self.U  
         
-        Pesos = csd.vertcat(*self.Pesos)
-        ViN_ant = csd.vertcat(*self.ViN_ant)
-        
-        indx = (self.N-1)*(self.nx+self.nu)
+        # indx = (self.N-1)*(self.nx+self.nu)
+        indx = (self.N-1)*self.nx
         MPC = csd.Function('MPC',
             [W0, X, Ysp, U, LAM_W0, LAM_G0, Pesos, ViN_ant],
-            [sol['f'], du_opt, sol['x'], sol['lam_x'], sol['lam_g'], sol['g'], sol['g'][indx:indx+self.nx]],
+            [sol['f'], du_opt, sol['x'], sol['lam_x'], sol['lam_g'], sol['g'], sol['g'][indx:indx+self.nx], x_pred],
             ['w0', 'x0', 'ySP', 'u0', 'lam_w0', 'lam_g0', 'pesos', 'ViN_ant'],
-            ['J','du_opt', 'w_opt', 'lam_w', 'lam_g', 'g', 'xN'])
+            ['J','du_opt', 'w_opt', 'lam_w', 'lam_g', 'g', 'xN', 'x_pred'])
 
         return MPC
     
+
     def mpc(self, x0, ySP, w0, u0, pesos, lam_w0, lam_g0, ViN_ant=[]):
         MPC = self._MPC()
         if ViN_ant == []:
-            ViN_ant = self.ViNant
+            ViN_ant = csd.vertcat(*self.ViNant)
         sol = MPC(x0=x0, ySP=ySP, w0=w0, u0=u0, pesos=pesos, lam_w0=lam_w0, lam_g0=lam_g0, ViN_ant=ViN_ant)
         # falta atualizar self.ViNant
         l = len(self.F_ViN)
         for i in range(l):
-            self.ViNant += self.F_ViN[i]([], [], sol['w_opt'], [])        
+            self.ViNant[i] = self.F_ViN[i]([], [], sol['w_opt'], [])     
         return sol
+
 
     def warmStart(self, sol, ysp):
         w_start = []
@@ -441,6 +448,8 @@ class IHMPCController(object):
         dustart = np.hstack((dustart, np.zeros((self.nu,1)))) # add 0 at the end
         dustart = dustart.flatten()
         
+        xii = sol['x_pred'][-self.nx:]
+
         xi = sol['xN']
         ui = 0
         res = self.F(x0=xi, u0=ui, du0=0)
