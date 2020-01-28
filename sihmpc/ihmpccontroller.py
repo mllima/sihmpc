@@ -360,9 +360,9 @@ class IHMPCController(object):
         Y_pred = csd.vertcat(*Y_pred)
         U_pred = csd.vertcat(*U_pred)
         pred = csd.Function('pred', [X, U, csd.vertcat(*dU_pred)], 
-                            [X_pred, Y_pred, U_pred, XN],
+                            [X_pred, Y_pred, U_pred],
                             ['x0', 'u0', 'du_opt'],
-                            ['x_pred', 'y_pred', 'u_pred','xN'])
+                            ['x_pred', 'y_pred', 'u_pred'])
 
         prob = {'f': J, 'x': w, 'g': g, 'p': p} 
         bounds = {'lbw': lbw, 'ubw': ubw, 'lbg': lbg, 'ubg': ubg}
@@ -386,7 +386,7 @@ class IHMPCController(object):
 
         # nlp solver
         prob, bounds, pred = self._OptimProbl()
-        
+
         solver = csd.nlpsol('solver', 'ipopt', prob, opt)
         #x_pred, y_pred, u_pred = pred(X,)
 
@@ -403,17 +403,12 @@ class IHMPCController(object):
         # multiplicadores de lagrange - initial guess
         LAM_W0 = csd.MX.sym('LW0', dim_w)  
         LAM_G0 = csd.MX.sym('LG0', dim_g)
-        
+
         sol = solver(x0=W0, lbx=lbw, ubx=ubw, lbg=lbg, ubg=ubg, p=p,
                   lam_x0=LAM_W0, lam_g0=LAM_G0)
 
-        import pdb
-        pdb.set_trace()
-
-        # x_pred, y_pred, u_pred, xN_pred = pred(X,U,W0[:-2*self.ny])
-        x_pred, y_pred, u_pred, xN_pred = pred(X,U,sol['x'][:-2*self.ny])
+        x_pred, y_pred, u_pred = pred(X,U,sol['x'][:-2*self.ny])
       
-
         # loop para retornar o resultado em matriz
         du_opt = []
         index = 0
@@ -422,13 +417,11 @@ class IHMPCController(object):
             du_opt = csd.horzcat(du_opt, auxU)
             index = index + self.nu
         
-        # indx = (self.N-1)*(self.nx+self.nu)
-        indx = (self.N-1)*self.nx
         MPC = csd.Function('MPC',
             [W0, X, Ysp, U, LAM_W0, LAM_G0, Pesos, ViN_ant],
-            [sol['f'], du_opt, sol['x'], sol['lam_x'], sol['lam_g'], sol['g'], sol['g'][indx:indx+self.nx], x_pred, xN_pred],
+            [sol['f'], du_opt, sol['x'], sol['lam_x'], sol['lam_g'], sol['g'], x_pred, y_pred, u_pred],
             ['w0', 'x0', 'ySP', 'u0', 'lam_w0', 'lam_g0', 'pesos', 'ViN_ant'],
-            ['J','du_opt', 'w_opt', 'lam_w', 'lam_g', 'g', 'xN', 'x_pred', 'xN_pred'])
+            ['J','du_opt', 'w_opt', 'lam_w', 'lam_g', 'g', 'x_pred', 'y_pred','u_pred'])
 
         return MPC
     
@@ -454,13 +447,10 @@ class IHMPCController(object):
         dustart = np.hstack((dustart, np.zeros((self.nu,1)))) # add 0 at the end
         dustart = dustart.flatten()
         
-        xii = sol['x_pred'][-self.nx:]
-        xiii = sol['xN_pred']
+        xi = sol['x_pred'][-self.nx:]
 
-        xi = sol['xN']
-
-        import pdb
-        pdb.set_trace()
+        # import pdb
+        # pdb.set_trace()
 
         ui = 0
         res = self.F(x0=xi, u0=ui, du0=0)
