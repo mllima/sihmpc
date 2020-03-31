@@ -67,7 +67,7 @@ class IHMPCController(object):
         self.syN = csd.MX.sym('syN', self.ny)    # Variáveis de folga na saída
         self.siN = csd.MX.sym('siN', self.ny)    # Variável de folga terminal
                 
-        self.F = self._DynamicF()
+        self.dynF = self._DynamicF()
         self.X_pred, self.Y_pred, self.U_pred, self.dU_pred = self.prediction()
         
         # Terminal cost: standard sub-objectives
@@ -79,13 +79,15 @@ class IHMPCController(object):
         # lists
         self.V = [self.Vt]                       # list of sub-objetives
         self.F_ViN = []                          # list of ViN's functions
-        self.Pesos = []
-        self.ViN_ant = []
-        self.ViNant = []
+        self.Pesos = []                          # list of weights
+        self.ViN_ant = []                        # list of casadi variables that receives ViNant
+        self.ViNant = []                         # list of the Vi value at the least step
 
         # total cost
-        self.J = 0
+        self.J = self.Vt.V
 
+        # initial weights
+        self.iniW = []
 
     def _DynamicF(self):
         #return the casadi function that represent the dynamic system
@@ -161,7 +163,7 @@ class IHMPCController(object):
             weight = csd.MX.sym('w_' + str(l))  # peso do sub_objetivo
             Vy = self.fObj(Vy, weight, X, U, np.append(dU_pred,[syN, siN]), Ysp)
             self.Pesos.append(weight)
-            self.J += weight * (Vy.V  + self.Vt.V)
+            self.J += weight * (Vy.V) # + 0.5*self.Vt.V)
             self.V.append(Vy)
 
             # associated sub-objectives
@@ -243,7 +245,7 @@ class IHMPCController(object):
         
     def prediction(self):
         N = self.N
-        F = self.F
+        F = self.dynF
         X = self.X
         U = self.U        
         Xkp1 = X
@@ -297,19 +299,19 @@ class IHMPCController(object):
         ViN_ant = self.ViN_ant
         
         w += dU_pred
-        g += X_pred
-        g += U_pred
-
         for _ in range(0, N):
-            
             # Adiciona duk nas variáveis de decisão
             lbw += [self.dulb]  	# bound inferior na variável
             ubw += [self.duub]  	# bound superior na variável
-                       
+
+        g += X_pred
+        for _ in range(0, N):
             # Bounds em x
             lbg += [self.xlb]
             ubg += [self.xub]
-        
+
+        g += U_pred
+        for _ in range(0,N):       
             # Bounds em u
             lbg += [self.ulb]
             ubg += [self.uub]
@@ -453,7 +455,7 @@ class IHMPCController(object):
         # pdb.set_trace()
 
         ui = 0
-        res = self.F(x0=xi, u0=ui, du0=0)
+        res = self.dynF(x0=xi, u0=ui, du0=0)
         Xknext = res['xkp1'].full()
         
         xsNp2 = Xknext[0:self.nxs]
