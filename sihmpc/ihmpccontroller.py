@@ -16,11 +16,12 @@ class IHMPCController(object):
         self.sys = sys
         self.Ts = sys.Ts
         self.N = int(N)  # horizonte de controle
+        self.theta_max = sys.theta_max
 
         # assert that the control horizon is greater than dead time
-        assert (self.N > sys.theta_max),\
+        assert (self.N > self.theta_max),\
             'the control horizon should be greater than the maximal system dead time: {}'\
-            .format(sys.theta_max)
+            .format(self.theta_max)
 
         # numbers
         self.nx = sys.nx     # Número de estados
@@ -52,11 +53,7 @@ class IHMPCController(object):
         self.riub = kwargs.get('riub', np.zeros(sys.ny))             # Upper bound na restrição terminal de xi
         
         # # A escolha dos pesos é bastante simplificada: em geral se escolhe peso 1
-        self.Qy = kwargs.get('Q', np.eye(sys.ny))       # Matriz de peso dos estados
-        # self.R = kwargs.get('R', np.eye(sys.nu))        # Matriz de peso dos controles
-        # self.Sy = kwargs.get('Sy', np.eye(sys.ny))      # Matriz de peso das variáveis de folga dos estados est
-        # self.Si = kwargs.get('Si', np.eye(sys.ny))       # Matriz de peso das variáveis de folga dos estados int
-
+        self.Qt = kwargs.get('Qt', np.eye(sys.ny))       # Matriz de peso dos estados
         self.Q_bar = []
        
         # symbolic variables
@@ -74,10 +71,13 @@ class IHMPCController(object):
         self.Vt = self.fObj(self._terminalObj(),1, 
                             self.X, self.U, 
                             np.append(self.dU_pred,[self.syN, self.siN]), 
-                            self.Ysp)
+                            self.Ysp, 'Vt')
 
         # lists
         self.V = [self.Vt]                       # list of sub-objetives
+        self.VJ = []                             # list of components of J with vaiable w
+        self.VyN = []                            # list of terminal cost of y
+        self.Vysp = []                           # list of cost due to set point error
         self.F_ViN = []                          # list of ViN's functions
         self.Pesos = []                          # list of weights
         self.ViN_ant = []                        # list of casadi variables that receives ViNant
@@ -113,7 +113,8 @@ class IHMPCController(object):
 
 
     class fObj:
-        def __init__(self,V,w, X, U, var, Ysp):
+        def __init__(self,V,w, X, U, var, Ysp, name=''):
+            self.name = name
             self.V = V
             self.min = 0
             self.max = np.inf
@@ -123,14 +124,13 @@ class IHMPCController(object):
             self.F = csd.Function('F', [X, U, var, Ysp], [V],
                     ['x0', 'u0', 'var','ysp'],
                     ['Value'])
-
         def lim(self, min, max):
             self.min = min
             self.max = max
-
         def satLim(self, gamma):
-          self.gamma = gamma
-
+            self.gamma = gamma
+        def setName(self, name):
+            self.name = name
 
     def subObj(self,**kwargs):
         N = self.N
@@ -160,23 +160,22 @@ class IHMPCController(object):
                     Vy += (Y_pred[k][ind] - Ysp[ind] - syN[ind] - (k-N)*Ts*siN[ind])**2 *np.diag(Q)[j]
             l = len(self.V)
             
-            weight = csd.MX.sym('w_' + str(l))  # peso do sub_objetivo
-            Vy = self.fObj(Vy, weight, X, U, np.append(dU_pred,[syN, siN]), Ysp)
+            weight = csd.MX.sym('w_y' + str(inds))  # peso do sub_objetivo
             self.Pesos.append(weight)
-            self.J += weight * (Vy.V) # + 0.5*self.Vt.V)
+
+            Vy = self.fObj(Vy, weight, X, U, np.append(dU_pred,[syN, siN]), Ysp)
+            Vy.setName('y_'+str(inds))
             self.V.append(Vy)
-
-            # associated sub-objectives
+            self.Vysp.append(Vy)
+                    
+            # associated sub-objective
             VyN = self.subObj(syN=kwargs['y'], Q=kwargs['Q'])
-            ViN = self.subObj(siN=kwargs['y'], Q=kwargs['Q'])
-            self.F_ViN.append(ViN.F)
+            
+            Vy_composed = self.fObj(Vy.V + VyN.V, weight, X, U, np.append(dU_pred,[syN, siN]), Ysp)
+            self.VJ.append(Vy_composed)
+            self.J += weight * (Vy.V + VyN.V)
 
-            # ViN must be contractive
-            ViN_ant = csd.MX.sym('ViN_ant_' + str(l+2))
-            ViN.lim(0,ViN_ant)
-            self.ViN_ant.append(ViN_ant)
-            self.ViNant.append(np.inf)
-            return Vy, VyN, ViN
+            return Vy_composed
 
         if 'du' in kwargs:
             Vdu = 0
@@ -188,11 +187,14 @@ class IHMPCController(object):
                     # sub-objetivo em du
                     Vdu += dU_pred[k][ind]**2 * np.diag(Q)[j]
             l = len(self.V)
-            weight = csd.MX.sym('w_' + str(l))  # peso do sub_objetivo
+            weight = csd.MX.sym('w_du' + str(inds))  # peso do sub_objetivo
             Vdu = self.fObj(Vdu, weight, X, U, np.append(dU_pred,[syN, siN]), Ysp)
-            self.Pesos.append(weight)
-            self.J += weight * Vdu.V
+            Vdu.setName('du_'+str(inds))
             self.V.append(Vdu)
+            self.Pesos.append(weight)
+
+            self.VJ.append(Vdu)
+            self.J += weight * Vdu.V
             return Vdu
             
         # custo das variáveis de folga
@@ -204,11 +206,14 @@ class IHMPCController(object):
                 j += 1
                 VyN += syN[ind]**2 * np.diag(Q)[j]
             l = len(self.V)
-            weight = csd.MX.sym('w_' + str(l))  # peso do sub_objetivo
+            #weight = csd.MX.sym('w_' + str(l))  # peso do sub_objetivo
+            weight = 1
             VyN = self.fObj(VyN, weight, X, U, np.append(dU_pred,[syN, siN]), Ysp)
-            self.Pesos.append(weight)
-            self.J += weight * VyN.V
+            VyN.setName('syN_'+str(inds))
             self.V.append(VyN)
+            self.VyN.append(VyN)
+            #self.Pesos.append(weight)
+            #self.J += weight * VyN.V
             return VyN
 
         if 'siN' in kwargs:
@@ -219,11 +224,22 @@ class IHMPCController(object):
                 j += 1
                 ViN += siN[ind]**2 * np.diag(Q)[j]            
             l = len(self.V)
-            weight = csd.MX.sym('w_' + str(l))  # peso do sub_objetivo
+            weight = csd.MX.sym('w_siN' + str(inds))  # peso do sub_objetivo
             ViN = self.fObj(ViN, weight, X, U, np.append(dU_pred,[syN, siN]), Ysp)
-            self.Pesos.append(weight)
-            self.J += weight * ViN.V
+            ViN.setName('siN_'+str(inds))
             self.V.append(ViN)
+            self.F_ViN.append(ViN.F)
+            self.Pesos.append(weight)
+
+            self.VJ.append(ViN)
+            self.J += weight * ViN.V
+            
+            # ViN must be contractive
+            ViN_ant = csd.MX.sym('ViN_ant_' + str(l))
+            ViN.lim(0,ViN_ant)
+            self.ViN_ant.append(ViN_ant)
+            self.ViNant.append(np.inf)
+
             return ViN
     
 
@@ -236,7 +252,7 @@ class IHMPCController(object):
  
         # Adição do custo terminal
         # Q terminal
-        Q_lyap = self.sys.F.T@self.sys.Psi.T@self.Qy@self.sys.Psi@self.sys.F
+        Q_lyap = self.sys.F.T@self.sys.Psi.T@self.Qt@self.sys.Psi@self.sys.F
         Q_bar = solve_discrete_lyapunov(self.sys.F, Q_lyap, method='bilinear')
         Vt = csd.dot(XdN**2, csd.diag(Q_bar))
         self.Q_bar = Q_bar
@@ -341,7 +357,7 @@ class IHMPCController(object):
         l = len(self.V)
         for i in range(l-1):
             g += [self.V[i+1].V]
-            lbg += [self.V[i+1].min]
+            lbg += [self.V[i+1].min]  # in the case of ViN, min = ViN_ant
             ubg += [self.V[i+1].max]
        
         # variáveis de folga
@@ -428,18 +444,6 @@ class IHMPCController(object):
         return MPC
     
 
-    def mpc(self, x0, ySP, w0, u0, pesos, lam_w0, lam_g0, ViN_ant=[]):
-        MPC = self._MPC()
-        if ViN_ant == []:
-            ViN_ant = csd.vertcat(*self.ViNant)
-        sol = MPC(x0=x0, ySP=ySP, w0=w0, u0=u0, pesos=pesos, lam_w0=lam_w0, lam_g0=lam_g0, ViN_ant=ViN_ant)
-        # falta atualizar self.ViNant
-        l = len(self.F_ViN)
-        for i in range(l):
-            self.ViNant[i] = self.F_ViN[i]([], [], sol['w_opt'], [])     
-        return sol
-
-
     def warmStart(self, sol, ysp):
         w_start = []
         w0 = sol['w_opt'][:]
@@ -449,13 +453,17 @@ class IHMPCController(object):
         dustart = np.hstack((dustart, np.zeros((self.nu,1)))) # add 0 at the end
         dustart = dustart.flatten()
         
-        xi = sol['x_pred'][-self.nx:]
+        # xN = sol['x_pred'][-self.nx:]
+        
+        # xsN = xN[0:self.nxs]
+        # xiN = xN[self.nxs+self.nxd:self.nxs+self.nxd+self.nxi]   
+        
+        # syNnext = xsN - np.array(ysp).reshape(self.ny,1)
+        # siNnext = xiN      
 
-        # import pdb
-        # pdb.set_trace()
+        xN = sol['x_pred'][-self.nx:]
 
-        ui = 0
-        res = self.dynF(x0=xi, u0=ui, du0=0)
+        res = self.dynF(x0=xN, u0=np.zeros(self.nu), du0=np.zeros(self.nu))
         Xknext = res['xkp1'].full()
         
         xsNp2 = Xknext[0:self.nxs]
@@ -469,14 +477,35 @@ class IHMPCController(object):
         return w_start
 
 
+    def mpc(self, x0, ySP, w0, u0, pesos, lam_w0, lam_g0, ViN_ant=[]):
+        MPC = self._MPC()
+        if ViN_ant == []:
+            ViN_ant = self.ViNant  
+        sol = MPC(x0=x0, ySP=ySP, w0=w0, u0=u0, pesos=pesos, lam_w0=lam_w0, lam_g0=lam_g0, ViN_ant=ViN_ant)
+        
+        # falta atualizar self.ViNant
+        # xN = sol['x_pred'][-self.nx:]
+        # xiN = xN[self.nxs+self.nxd:self.nxs+self.nxd+self.nxi]
+        # du = sol['du_opt'][:, 0].full()
+        # self.ViNant = (xiN - self.sys.Di@du)**2
+                
+        l = len(self.F_ViN)
+        warm_start = self.warmStart(sol,ySP)
+        for i in range(l):
+            self.ViNant[i] = float(self.F_ViN[i]([], [], warm_start, []))
+
+        return sol
+
+
     def satWeights(self, x, u, w_start, ysp):
         # custos seguintes estimados
         pesos = []
-        l = len(self.V)-1
+        l = len(self.VJ)
+        
         for i in range(l):
-          Vnext = self.V[i+1].F(x, u, w_start, ysp)
-          gamma = self.V[i+1].gamma
-          w = 1/(gamma - np.clip(Vnext, 0, 0.99*gamma))
+          Vnext = self.VJ[i].F(x, u, w_start, ysp)
+          gamma = self.VJ[i].gamma
+          w = 1/(gamma - np.clip(Vnext, 0, 0.9*gamma))
           pesos = np.append(pesos, w)
         return pesos
 

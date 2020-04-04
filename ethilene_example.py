@@ -83,23 +83,28 @@ sys = OPOM(h, Ts)
 
 # %% Controlador
 
-N = 8  # horizon in steps
+N = 8 + sys.theta_max # horizon in steps
 umax = [6900, 5700, 100, 95]
 umin = [5700, 4500, 0, 25]
 dumax = [25, 25, 2, 10]
 dumin = [-25, -25, -2, -10]
+
 c = IHMPCController(sys, N, uub=umax, ulb=umin, duub=dumax, dulb=dumin)
 
 # sub-objectives
 Q = 1
 R = 1
-R12 = np.eye(2)
 
+Vy1 = c.subObj(y=[0], Q=Q)
+Vy2 = c.subObj(y=[1], Q=Q)
+Vy3 = c.subObj(y=[2], Q=Q)
+Vy4 = c.subObj(y=[3], Q=Q)
 
-Vy1, Vy1N, Vi1N = c.subObj(y=[0], Q=Q)
-Vy2, Vy2N, Vi2N = c.subObj(y=[1], Q=Q)
-Vy3, Vy3N, Vi3N = c.subObj(y=[2], Q=Q)
-Vy4, Vy4N, Vi4N = c.subObj(y=[3], Q=Q)
+Vi1N = c.subObj(siN=[0], Q=Q)
+Vi2N = c.subObj(siN=[1], Q=Q)
+Vi3N = c.subObj(siN=[2], Q=Q)
+Vi4N = c.subObj(siN=[3], Q=Q)
+
 Vdu1 = c.subObj(du=[0], Q=R)
 Vdu2 = c.subObj(du=[1], Q=R)
 Vdu3 = c.subObj(du=[2], Q=R)
@@ -109,38 +114,28 @@ Vdu4 = c.subObj(du=[3], Q=R)
 # Vy1.lim(0, np.inf)
 
 # satisficing limits 
-Vy1.satLim(N*0.01**2)
-Vy2.satLim(N*0.185**2)
-Vy3.satLim(N*0.25**2)
-Vy4.satLim(N*0.03**2)
+Vy1.satLim(N*0.1**2)
+Vy2.satLim(N*1.85**2)
+Vy3.satLim(N*2.5**2)
+Vy4.satLim(N*0.3**2)
 
-Vy1N.satLim(0.001**2)
-Vy2N.satLim(0.0185**2)
-Vy3N.satLim(0.025**2)
-Vy4N.satLim(0.003**2)
+Vi1N.satLim(1**2)
+Vi2N.satLim(1**2)
+Vi3N.satLim(1**2)
+Vi4N.satLim(1**2)
 
-Vi1N.satLim(0.001**2)
-Vi2N.satLim(0.001**2)
-Vi3N.satLim(0.001**2)
-Vi4N.satLim(0.001**2)
-
-Vdu1.satLim(N*2.5**2)
-Vdu2.satLim(N*2.5**2)
-Vdu3.satLim(N*0.2**2)
-Vdu4.satLim(N*1.0**2)
+Vdu1.satLim(N*25**2)
+Vdu2.satLim(N*25**2)
+Vdu3.satLim(N*2**2)
+Vdu4.satLim(N*10**2)
 
 # set-points
 ysp = [5.9, 17.85, 277.5, 18.8]
 
 # pesos - inicialização dos pessos
-pesos = np.array([1/Vy1.gamma, 1/Vy1N.gamma, 1/Vi1N.gamma, 
-                  1/Vy2.gamma, 1/Vy2N.gamma, 1/Vi2N.gamma,
-                  1/Vy3.gamma, 1/Vy3N.gamma, 1/Vi3N.gamma,
-                  1/Vy4.gamma, 1/Vy4N.gamma, 1/Vi4N.gamma,
-                  1/Vdu1.gamma,
-                  1/Vdu2.gamma,
-                  1/Vdu3.gamma,
-                  1/Vdu4.gamma])
+pesos = np.array([1/Vy1.gamma,  1/Vy2.gamma,  1/Vy3.gamma,  1/Vy4.gamma,
+                  1/Vi1N.gamma, 1/Vi2N.gamma, 1/Vi3N.gamma, 1/Vi4N.gamma,
+                  1/Vdu1.gamma, 1/Vdu2.gamma, 1/Vdu3.gamma, 1/Vdu4.gamma])
 
 # %% Closed loop
 JPlot = []
@@ -149,43 +144,52 @@ yPlot = []
 uPlot = []
 xPlot = []
 pesosPlot = []
+
 vy1Plot = []
-vy1NPlot = []
-vi1NPlot = []
 vy2Plot = []
+vy3Plot = []
+vy4Plot = []
+
+vy1NPlot = []
 vy2NPlot = []
+vy3NPlot = []
+vy4NPlot = []
+
+vi1NPlot = []
 vi2NPlot = []
+vi3NPlot = []
+vi4NPlot = []
+
 vdu1Plot = []
+vdu2Plot = []
+vdu3Plot = []
+vdu4Plot = []
+
 vtPlot = []
 
 u = np.array([6357, 5280, 82, 48]) # controle inicial
-x = np.array([ 6.22e+00,  1.57e+01,  2.785e+02,  1.81e+01,
- 0, 0,  0,  0,
- 0, 0,  0,  0,
- 0, 0,  0,  0,
- 0, 0,  0,  0])
-# x = np.array([ 5.89995687e+00,  1.78500397e+01,  2.77499993e+02,  1.88000060e+01,
-#  -5.14528818e-11, -1.76711967e-10,  3.51771803e-11,  3.11279191e-11,
-#   2.50052035e-45,  1.11646671e-11,  9.44589838e-12, -6.44589926e-12,
-#  -1.40321124e-10,  1.22377224e-10,  6.04481281e-53,  1.22851246e-11,
-#  -2.74361818e-07,  2.49243349e-08, -6.61665183e-09,  6.82593352e-09])
+x = np.array([6.22e+00, 1.57e+01, 2.785e+02, 1.81e+01,
+              0,        0,        0,         0,
+              0,        0,        0,         0,
+              0,        0,        0,         0,
+              0,        0,        0,         0])  # initial state = inicial output
 
-tEnd = 10000     	    # Tempo de simulação (seg)
+tEnd = 5000     	    # Tempo de simulação (seg)
 
 tocMPC = []
 
 w0 = []
 lam_w0 = []
 lam_g0 = []
-    
+   
 for k in np.arange(0, tEnd/Ts):
 
     t1 = time.time()
     pesosPlot += [pesos]
         
     #to test a change in the set-point    
-    # if k > (tEnd/2)/Ts: 
-    #     ysp[1] = 18.5
+    # if k > (tEnd/6)/Ts: 
+    #     ysp[1] = 20
 
     sol = c.mpc(x0=x, ySP=ysp, w0=w0, u0=u, pesos=pesos, lam_w0=lam_w0, lam_g0=lam_g0, ViN_ant=[])
     
@@ -203,13 +207,23 @@ for k in np.arange(0, tEnd/Ts):
     JPlot.append(J)
 
     #sub-objectives values
-    vy1Plot.append(float(Vy1.F(x, u, w0, ysp)))
-    vy1NPlot.append(float(Vy1N.F(x, u, w0, ysp)))
+    vy1Plot.append(float(c.Vysp[0].F(x, u, w0, ysp)))
+    vy1NPlot.append(float(c.VyN[0].F(x, u, w0, ysp)))
     vi1NPlot.append(float(Vi1N.F(x, u, w0, ysp)))
-    vy2Plot.append(float(Vy2.F(x, u, w0, ysp)))
-    vy2NPlot.append(float(Vy2N.F(x, u, w0, ysp)))
+    vy2Plot.append(float(c.Vysp[1].F(x, u, w0, ysp)))
+    vy2NPlot.append(float(c.VyN[1].F(x, u, w0, ysp)))
     vi2NPlot.append(float(Vi2N.F(x, u, w0, ysp)))
+    vy3Plot.append(float(c.Vysp[2].F(x, u, w0, ysp)))
+    vy3NPlot.append(float(c.VyN[2].F(x, u, w0, ysp)))
+    vi3NPlot.append(float(Vi3N.F(x, u, w0, ysp)))
+    vy4Plot.append(float(c.Vysp[3].F(x, u, w0, ysp)))
+    vy4NPlot.append(float(c.VyN[3].F(x, u, w0, ysp)))
+    vi4NPlot.append(float(Vi4N.F(x, u, w0, ysp)))
     vdu1Plot.append(float(Vdu1.F(x, u, w0, ysp)))
+    vdu2Plot.append(float(Vdu2.F(x, u, w0, ysp)))
+    vdu3Plot.append(float(Vdu3.F(x, u, w0, ysp)))
+    vdu4Plot.append(float(Vdu4.F(x, u, w0, ysp)))
+
     #terminal cost
     vtPlot.append(float(c.Vt.F(x, u, w0, ysp)))
 
@@ -261,25 +275,6 @@ for i in range(c.nu + c.ny):
     plt.grid()
     plt.legend()
 
-# plt.subplot(1, 3, 1)
-# plt.step(t, yPlot.T)
-# plt.legend(loc=0, fontsize='large')
-# plt.grid()
-# plt.legend(['y{}'.format(i) for i in range(len(yPlot[0]))])
-# plt.subplot(1, 3, 2)
-# plt.step(t, duPlot.T)
-# plt.legend(loc=0, fontsize='large')
-# plt.grid()
-# plt.legend(['du{}'.format(i) for i in range(np.shape(duPlot)[0])])
-# plt.subplot(1, 3, 3)
-# plt.step(t, uPlot.T)
-# plt.legend(loc=0, fontsize='large')
-# plt.grid()
-# plt.legend(['u{}'.format(i) for i in range(np.shape(uPlot)[0])])
-
-# import pdb
-# pdb.set_trace()
-
 #plt.show()
 # plt.savefig("SIHMPCOutput.png")
 
@@ -315,7 +310,8 @@ y = round(nw/4+0.5)
 x = round(nw/y+0.5)
 for i in range(nw):
     plt.subplot(x, y, i+1)
-    plt.step(t, pesosPlot[:,i], label='w'+str(i+1))
+    label = c.VJ[i].weight.name()
+    plt.step(t, pesosPlot[:,i], label=label)
     plt.legend(loc=0, fontsize='large')
     plt.grid()
     plt.legend()
@@ -328,30 +324,25 @@ fig4.text(0.5, 0.04, 'Time', ha='center', va='center')
 plt.plot(t,JPlot)
 #plt.show()
 
+legends = ['Vy1', 'Vy2', 'Vy3', 'Vy4',
+           'Vy1N', 'Vy2N', 'Vy3N', 'Vy4N',
+           'Vi1N', 'Vi2N', 'Vi3N', 'Vi4N',
+           'Vdu1', 'Vdu2', 'Vdu3', 'Vdu4',
+           'Vt']
+Values = [vy1Plot, vy2Plot, vy3Plot, vy4Plot, 
+          vy1NPlot, vy2NPlot, vy3NPlot, vy4NPlot,
+          vi1NPlot, vi2NPlot, vi3NPlot, vi4NPlot,
+          vdu1Plot, vdu2Plot, vdu3Plot, vdu4Plot,
+          vtPlot]           
 fig5 = plt.figure(5)
 fig5.suptitle("Local Costs")
 fig5.text(0.5, 0.04, 'Time', ha='center', va='center')
-plt.subplot(3,3,1)
-plt.step(t,vy1Plot)
-plt.legend(['Vy1'])
-plt.subplot(3,3,2)
-plt.step(t,vy1NPlot)
-plt.legend(['Vy1N'])
-plt.subplot(3,3,3)
-plt.step(t,vi1NPlot)
-plt.legend(['Vi1N'])
-plt.subplot(3,3,4)
-plt.step(t,vy2Plot)
-plt.legend(['Vy2'])
-plt.subplot(3,3,5)
-plt.step(t,vy2NPlot)
-plt.legend(['Vy2N'])
-plt.subplot(3,3,6)
-plt.step(t,vi2NPlot)
-plt.legend(['Vi2N'])
-plt.subplot(3,3,7)
-plt.step(t,vdu1Plot)
-plt.legend(['Vdu'])
+x = 4
+y = 5
+for i in range(len(Values)):
+    plt.subplot(x,y,i+1)
+    plt.step(t,Values[i], label=legends[i])
+    plt.legend()
 
 plt.show()
 
