@@ -137,6 +137,9 @@ pesos = np.array([1/Vy1.gamma,  1/Vy2.gamma,  1/Vy3.gamma,  1/Vy4.gamma,
                   1/Vi1N.gamma, 1/Vi2N.gamma, 1/Vi3N.gamma, 1/Vi4N.gamma,
                   1/Vdu1.gamma, 1/Vdu2.gamma, 1/Vdu3.gamma, 1/Vdu4.gamma])
 
+fator = 0.1/min(pesos)
+pesos = fator*pesos
+
 # %% Closed loop
 JPlot = []
 duPlot = []
@@ -174,7 +177,7 @@ x = np.array([6.22e+00, 1.57e+01, 2.785e+02, 1.81e+01,
               0,        0,        0,         0,
               0,        0,        0,         0])  # initial state = inicial output
 
-tEnd = 5000     	    # Tempo de simulação (seg)
+tEnd = 50000     	    # Tempo de simulação (seg)
 
 tocMPC = []
 
@@ -240,9 +243,9 @@ for k in np.arange(0, tEnd/Ts):
     
     du_warm = w0
 
-    new_pesos = c.satWeights(x, u, du_warm, ysp)
-    alfa = 0.7
-    pesos = alfa*pesos + (1-alfa)*new_pesos
+    # new_pesos = fator * c.satWeights(x, u, du_warm, ysp)
+    # alfa = 0.7
+    # pesos = alfa*pesos + (1-alfa)*new_pesos
 
     
 print('Tempo de execução do MPC. Média: %2.3f s, Max: %2.3f s' %

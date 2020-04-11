@@ -483,7 +483,7 @@ class IHMPCController(object):
             ViN_ant = self.ViNant  
         sol = MPC(x0=x0, ySP=ySP, w0=w0, u0=u0, pesos=pesos, lam_w0=lam_w0, lam_g0=lam_g0, ViN_ant=ViN_ant)
         
-        # falta atualizar self.ViNant
+        # ##falta atualizar self.ViNant
         # xN = sol['x_pred'][-self.nx:]
         # xiN = xN[self.nxs+self.nxd:self.nxs+self.nxd+self.nxi]
         # du = sol['du_opt'][:, 0].full()
