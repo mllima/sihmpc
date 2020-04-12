@@ -11,7 +11,7 @@ import control as ctl
 
 # %% Modelo OPOM
 
-Ts = 2.0  #min
+Ts = 1  #min
 
 # Transfer functions
 
@@ -38,7 +38,8 @@ sys = OPOM(h, Ts)
 # %% Controlador
 
 N = 10  # horizon in steps
-c = IHMPCController(sys, N, xlb=np.zeros(sys.nx))
+#xlb = np.append([0, 0], -np.ones(sys.nx-2)*np.inf)
+c = IHMPCController(sys, N) #, xlb=np.zeros(sys.nx))
 
 # sub-objectives
 Q1 = 1
@@ -48,6 +49,9 @@ R = 1
 Vy1 = c.subObj(y=[0], Q=Q1)
 Vy2 = c.subObj(y=[1], Q=Q2)
 
+Vy1N = c.subObj(syN=[0], Q=Q1)
+Vy2N = c.subObj(syN=[1], Q=Q2)
+
 Vi1N = c.subObj(siN=[0], Q=Q1)
 Vi2N = c.subObj(siN=[1], Q=Q2)
 
@@ -55,17 +59,20 @@ Vdu1 = c.subObj(du=[0], Q=R)
 Vdu2 = c.subObj(du=[1], Q=R)
 
 # satisficing limits 
-Vy1.satLim(N*0.001**2)
-Vi1N.satLim(0.01**2)
+Vy1.satLim(N*0.1**2)
+Vy1N.satLim(0.01**2)
+Vi1N.satLim(1**2)
 
-Vy2.satLim(N*0.002**2)
-Vi2N.satLim(0.01**2)
+Vy2.satLim(N*0.1**2)
+Vy2N.satLim(0.01**2)
+Vi2N.satLim(1**2)
 
-Vdu1.satLim(N*50**2)
-Vdu2.satLim(N*50**2)
+Vdu1.satLim(N*0.5**2)
+Vdu2.satLim(N*0.5**2)
 
 # pesos - inicialização dos pessos (na ordem de criação dos subobjetivos)
 pesos = np.array([1/Vy1.gamma, 1/Vy2.gamma, 
+                  1/Vy1N.gamma, 1/Vy2N.gamma,
                   1/Vi1N.gamma, 1/Vi2N.gamma,
                   1/Vdu1.gamma, 1/Vdu2.gamma])
 
@@ -87,13 +94,12 @@ vdu2Plot = []
 vtPlot = []
 
 u = np.ones(sys.nu)*0  	# controle anterior
-x = np.append([96, 0.5], np.zeros(sys.nx-2)) #np.zeros(sys.nx)  	# Estado inicial
-tEnd = 500     	    # Tempo de simulação
+x = np.append([96, 0.5], np.zeros(sys.nx-2)) 	# Estado inicial
+tEnd = 50     	    # Tempo de simulação
 
 tocMPC = []
 
-ysp = [96, 0.1]
-y0 = ysp
+ysp = [96, 0.5]
 
 w0 = []
 lam_w0 = []
@@ -104,11 +110,11 @@ for k in np.arange(0, tEnd/Ts):
     t1 = time.time()
     pesosPlot += [pesos]
         
-    ##to test a change in the set-point    
-    # if k > (tEnd/10)/Ts: 
-    #     ysp = [96, 0.1]
-    if k > (tEnd/2)/Ts: 
+    #to test a change in the set-point    
+    if k > (tEnd/10)/Ts: 
         ysp = [99, 0.1]
+    # if k > (tEnd/2)/Ts: 
+    #     ysp = [99, 0.1]
 
     sol = c.mpc(x0=x, ySP=ysp, w0=w0, u0=u, pesos=pesos, lam_w0=lam_w0, lam_g0=lam_g0, ViN_ant=[])
     
@@ -126,10 +132,10 @@ for k in np.arange(0, tEnd/Ts):
     JPlot.append(J)
 
     #sub-objectives values
-    vy1Plot.append(float(c.Vysp[0].F(x, u, w0, ysp)))
+    vy1Plot.append(float(Vy1.F(x, u, w0, ysp)))
     vy1NPlot.append(float(c.VyN[0].F(x, u, w0, ysp)))
     vi1NPlot.append(float(Vi1N.F(x, u, w0, ysp)))
-    vy2Plot.append(float(c.Vysp[1].F(x, u, w0, ysp)))
+    vy2Plot.append(float(Vy2.F(x, u, w0, ysp)))
     vy2NPlot.append(float(c.VyN[1].F(x, u, w0, ysp)))
     vi2NPlot.append(float(Vi2N.F(x, u, w0, ysp)))
     vdu1Plot.append(float(Vdu1.F(x, u, w0, ysp)))
@@ -265,6 +271,7 @@ plt.legend(['Vi2N'])
 plt.subplot(3,3,7)
 plt.step(t,vdu1Plot)
 plt.legend(['Vdu1'])
+plt.subplot(3,3,8)
 plt.step(t,vdu2Plot)
 plt.legend(['Vdu2'])
 

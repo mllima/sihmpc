@@ -77,7 +77,7 @@ class IHMPCController(object):
         self.V = [self.Vt]                       # list of sub-objetives
         self.VJ = []                             # list of components of J with vaiable w
         self.VyN = []                            # list of terminal cost of y
-        self.Vysp = []                           # list of cost due to set point error
+        #self.Vysp = []                           # list of cost due to set point error
         self.F_ViN = []                          # list of ViN's functions
         self.Pesos = []                          # list of weights
         self.ViN_ant = []                        # list of casadi variables that receives ViNant
@@ -158,6 +158,7 @@ class IHMPCController(object):
                 for k in range(0, N):
                     # sub-objetivo em y
                     Vy += (Y_pred[k][ind] - Ysp[ind] - syN[ind] - (k-N)*Ts*siN[ind])**2 *np.diag(Q)[j]
+                    #Vy += (Y_pred[k][ind] - Ysp[ind] - (k-N)*Ts*siN[ind])**2 *np.diag(Q)[j]            
             l = len(self.V)
             
             weight = csd.MX.sym('w_y' + str(inds))  # peso do sub_objetivo
@@ -166,16 +167,18 @@ class IHMPCController(object):
             Vy = self.fObj(Vy, weight, X, U, np.append(dU_pred,[syN, siN]), Ysp)
             Vy.setName('y_'+str(inds))
             self.V.append(Vy)
-            self.Vysp.append(Vy)
+            #self.Vysp.append(Vy)
                     
             # associated sub-objective
-            VyN = self.subObj(syN=kwargs['y'], Q=kwargs['Q'])
+            #VyN = self.subObj(syN=kwargs['y'], Q=kwargs['Q'])
             
-            Vy_composed = self.fObj(Vy.V + VyN.V, weight, X, U, np.append(dU_pred,[syN, siN]), Ysp)
-            self.VJ.append(Vy_composed)
-            self.J += weight * (Vy.V + VyN.V)
+            #Vy_composed = self.fObj(Vy.V + VyN.V, weight, X, U, np.append(dU_pred,[syN, siN]), Ysp)
+            #self.VJ.append(Vy_composed)
+            self.VJ.append(Vy)
+            #self.J += weight * (Vy.V + VyN.V)
+            self.J += weight * Vy.V
 
-            return Vy_composed
+            return Vy  #Vy_composed
 
         if 'du' in kwargs:
             Vdu = 0
@@ -206,14 +209,18 @@ class IHMPCController(object):
                 j += 1
                 VyN += syN[ind]**2 * np.diag(Q)[j]
             l = len(self.V)
-            #weight = csd.MX.sym('w_' + str(l))  # peso do sub_objetivo
-            weight = 1
+
+            #weight = 1
+            weight = csd.MX.sym('w_' + str(l))  # peso do sub_objetivo
+            self.Pesos.append(weight)
+
             VyN = self.fObj(VyN, weight, X, U, np.append(dU_pred,[syN, siN]), Ysp)
             VyN.setName('syN_'+str(inds))
             self.V.append(VyN)
             self.VyN.append(VyN)
-            #self.Pesos.append(weight)
-            #self.J += weight * VyN.V
+            self.VJ.append(VyN)
+            self.J += weight * VyN.V
+            
             return VyN
 
         if 'siN' in kwargs:
@@ -261,7 +268,6 @@ class IHMPCController(object):
         
     def prediction(self):
         N = self.N
-        F = self.dynF
         X = self.X
         U = self.U        
         Xkp1 = X
@@ -276,7 +282,7 @@ class IHMPCController(object):
             #self.dUk.append(dU_k)
         
             # Adiciona a nova dinâmica
-            res = F(x0=Xkp1, u0=Ukp1, du0=dU_k)
+            res = self.dynF(x0=Xkp1, u0=Ukp1, du0=dU_k)
             Xkp1 = res['xkp1']
             Ykp1 = res['ykp1']
             Ukp1 = res['ukp1']
@@ -320,6 +326,15 @@ class IHMPCController(object):
             lbw += [self.dulb]  	# bound inferior na variável
             ubw += [self.duub]  	# bound superior na variável
 
+        # variáveis de folga
+        w += [syN]
+        lbw += [self.sylb]  	   # bound inferior na variável
+        ubw += [self.syub]  	   # bound superior na variável
+
+        w += [siN]
+        lbw += [self.silb]  	# bound inferior na variável
+        ubw += [self.siub]  	# bound superior na variável
+
         g += X_pred
         for _ in range(0, N):
             # Bounds em x
@@ -359,16 +374,6 @@ class IHMPCController(object):
             g += [self.V[i+1].V]
             lbg += [self.V[i+1].min]  # in the case of ViN, min = ViN_ant
             ubg += [self.V[i+1].max]
-       
-        # variáveis de folga
-        w += [syN]
-        w += [siN]
-
-        lbw += [self.sylb]  	   # bound inferior na variável
-        ubw += [self.syub]  	   # bound superior na variável
-
-        lbw += [self.silb]  	# bound inferior na variável
-        ubw += [self.siub]  	# bound superior na variável
 
         g = csd.vertcat(*g)
         w = csd.vertcat(*w)
@@ -449,8 +454,10 @@ class IHMPCController(object):
         w0 = sol['w_opt'][:]
         
         dustart = w0[0:-2*self.ny].full() # retira syN e siN
-        dustart = dustart.reshape((self.nu, self.N))[:,1:] # remove firts du
-        dustart = np.hstack((dustart, np.zeros((self.nu,1)))) # add 0 at the end
+        #dustart = dustart.reshape((self.nu, self.N))[:,1:] # remove firts du
+        dustart = dustart[self.nu:] # remove firts du
+        #dustart = np.hstack((dustart, np.zeros((self.nu,1)))) # add 0 at the end
+        dustart = np.vstack((dustart, np.zeros((self.nu,1)))) # add 0 at the end
         dustart = dustart.flatten()
         
         # xN = sol['x_pred'][-self.nx:]

@@ -36,7 +36,7 @@ sys = OPOM(h, Ts)
 # %% Controlador
 
 N = 10  # horizon in steps
-c = IHMPCController(sys, N)
+c = IHMPCController(sys, N, ulb = [0, 0])
 
 # sub-objectives
 Q1 = 1
@@ -45,6 +45,9 @@ R = np.eye(2)
 
 Vy1 = c.subObj(y=[0], Q=Q1)
 Vy2 = c.subObj(y=[1], Q=Q2)
+
+Vy1N = c.subObj(syN=[0], Q=Q1)
+Vy2N = c.subObj(syN=[1], Q=Q2)
 
 Vi1N = c.subObj(siN=[0], Q=Q1)
 Vi2N = c.subObj(siN=[1], Q=Q2)
@@ -56,13 +59,18 @@ Vdu = c.subObj(du=[0,1], Q=R)
 
 # satisficing limits 
 Vy1.satLim(N*0.05**2)
+Vy1N.satLim(0.05**2)
 Vi1N.satLim(0.1**2)
+
 Vy2.satLim(N*0.05**2)
+Vy2N.satLim(0.1**2)
 Vi2N.satLim(0.1**2)
+
 Vdu.satLim(N*0.5**2)
 
 # pesos - inicialização dos pessos (na ordem de criação dos subobjetivos)
-pesos = np.array([1/Vy1.gamma, 1/Vy2.gamma, 
+pesos = np.array([1/Vy1.gamma, 1/Vy2.gamma,
+                  1/Vy1N.gamma, 1/Vy2N.gamma, 
                   1/Vi1N.gamma, 1/Vi2N.gamma,
                   1/Vdu.gamma])
 
@@ -84,7 +92,7 @@ vtPlot = []
 
 u = np.ones(sys.nu)*0  	# controle anterior
 x = np.ones(sys.nx)*0  	# Estado inicial
-tEnd = 1500     	    # Tempo de simulação (seg)
+tEnd = 1000     	    # Tempo de simulação (seg)
 
 tocMPC = []
 
@@ -119,11 +127,11 @@ for k in np.arange(0, tEnd/Ts):
     JPlot.append(J)
 
     #sub-objectives values
-    vy1Plot.append(float(c.Vysp[0].F(x, u, w0, ysp)))
-    vy1NPlot.append(float(c.VyN[0].F(x, u, w0, ysp)))
+    vy1Plot.append(float(Vy1.F(x, u, w0, ysp)))
+    vy1NPlot.append(float(Vy1N.F(x, u, w0, ysp)))
     vi1NPlot.append(float(Vi1N.F(x, u, w0, ysp)))
-    vy2Plot.append(float(c.Vysp[1].F(x, u, w0, ysp)))
-    vy2NPlot.append(float(c.VyN[1].F(x, u, w0, ysp)))
+    vy2Plot.append(float(Vy2.F(x, u, w0, ysp)))
+    vy2NPlot.append(float(Vy2N.F(x, u, w0, ysp)))
     vi2NPlot.append(float(Vi2N.F(x, u, w0, ysp)))
     vduPlot.append(float(Vdu.F(x, u, w0, ysp)))
     #terminal cost
@@ -216,9 +224,8 @@ fig3.text(0.5, 0.04, 'Time', ha='center', va='center')
 nw = len(pesos)
 y = round(nw/4+0.5)
 x = round(nw/y+0.5)
-seg = [0,2,1,3,4]
 for i in range(nw):
-    plt.subplot(x, y, seg[i]+1)
+    plt.subplot(x, y, i+1)
     label = c.VJ[i].weight.name()
     plt.step(t, pesosPlot[:,i], label=label) #'w'+str(i+1))
     plt.legend(loc=0, fontsize='large')
