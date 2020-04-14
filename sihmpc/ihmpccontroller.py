@@ -1,7 +1,5 @@
 # -*- coding: utf-8 -*-
-"""
-@author: Marcelo Lima
-"""
+
 import casadi as csd
 import numpy as np
 from opom import OPOM
@@ -76,8 +74,6 @@ class IHMPCController(object):
         # lists
         self.V = [self.Vt]                       # list of sub-objetives
         self.VJ = []                             # list of components of J with vaiable w
-        self.VyN = []                            # list of terminal cost of y
-        #self.Vysp = []                           # list of cost due to set point error
         self.F_ViN = []                          # list of ViN's functions
         self.Pesos = []                          # list of weights
         self.ViN_ant = []                        # list of casadi variables that receives ViNant
@@ -86,8 +82,6 @@ class IHMPCController(object):
         # total cost
         self.J = self.Vt.V
 
-        # initial weights
-        self.iniW = []
 
     def _DynamicF(self):
         #return the casadi function that represent the dynamic system
@@ -124,6 +118,7 @@ class IHMPCController(object):
             self.F = csd.Function('F', [X, U, var, Ysp], [V],
                     ['x0', 'u0', 'var','ysp'],
                     ['Value'])
+            self.Vi = []
         def lim(self, min, max):
             self.min = min
             self.max = max
@@ -131,6 +126,9 @@ class IHMPCController(object):
             self.gamma = gamma
         def setName(self, name):
             self.name = name
+        def setType(self, type = 'simple'):
+            self.type = type
+
 
     def subObj(self,**kwargs):
         N = self.N
@@ -157,28 +155,19 @@ class IHMPCController(object):
                 j += 1
                 for k in range(0, N):
                     # sub-objetivo em y
-                    Vy += (Y_pred[k][ind] - Ysp[ind] - syN[ind] - (k-N)*Ts*siN[ind])**2 *np.diag(Q)[j]
-                    #Vy += (Y_pred[k][ind] - Ysp[ind] - (k-N)*Ts*siN[ind])**2 *np.diag(Q)[j]            
-            l = len(self.V)
+                    Vy += (Y_pred[k][ind] - Ysp[ind] - syN[ind] - (k-N)*Ts*siN[ind])**2 *np.diag(Q)[j]           
             
             weight = csd.MX.sym('w_y' + str(inds))  # peso do sub_objetivo
-            self.Pesos.append(weight)
-
             Vy = self.fObj(Vy, weight, X, U, np.append(dU_pred,[syN, siN]), Ysp)
-            Vy.setName('y_'+str(inds))
-            self.V.append(Vy)
-            #self.Vysp.append(Vy)
-                    
-            # associated sub-objective
-            #VyN = self.subObj(syN=kwargs['y'], Q=kwargs['Q'])
-            
-            #Vy_composed = self.fObj(Vy.V + VyN.V, weight, X, U, np.append(dU_pred,[syN, siN]), Ysp)
-            #self.VJ.append(Vy_composed)
-            self.VJ.append(Vy)
-            #self.J += weight * (Vy.V + VyN.V)
-            self.J += weight * Vy.V
+            Vy.setName('Vy_'+str(inds))
 
-            return Vy  #Vy_composed
+            self.V.append(Vy)
+            if 'addJ' not in kwargs or kwargs['addJ'] != False:
+                self.Pesos.append(weight)
+                self.VJ.append(Vy)    
+                self.J += weight * Vy.V      
+
+            return Vy
 
         if 'du' in kwargs:
             Vdu = 0
@@ -189,15 +178,18 @@ class IHMPCController(object):
                 for k in range(0, N):
                     # sub-objetivo em du
                     Vdu += dU_pred[k][ind]**2 * np.diag(Q)[j]
-            l = len(self.V)
-            weight = csd.MX.sym('w_du' + str(inds))  # peso do sub_objetivo
-            Vdu = self.fObj(Vdu, weight, X, U, np.append(dU_pred,[syN, siN]), Ysp)
-            Vdu.setName('du_'+str(inds))
-            self.V.append(Vdu)
-            self.Pesos.append(weight)
 
-            self.VJ.append(Vdu)
-            self.J += weight * Vdu.V
+            weight = csd.MX.sym('w_du' + str(inds))  # peso do sub_objetivo
+
+            Vdu = self.fObj(Vdu, weight, X, U, np.append(dU_pred,[syN, siN]), Ysp)
+            Vdu.setName('Vdu_'+str(inds))
+
+            self.V.append(Vdu)
+            if 'addJ' not in kwargs or kwargs['addJ'] != False:
+                self.Pesos.append(weight)
+                self.VJ.append(Vdu)
+                self.J += weight * Vdu.V
+
             return Vdu
             
         # custo das variáveis de folga
@@ -210,16 +202,16 @@ class IHMPCController(object):
                 VyN += syN[ind]**2 * np.diag(Q)[j]
             l = len(self.V)
 
-            #weight = 1
             weight = csd.MX.sym('w_' + str(l))  # peso do sub_objetivo
-            self.Pesos.append(weight)
-
+            
             VyN = self.fObj(VyN, weight, X, U, np.append(dU_pred,[syN, siN]), Ysp)
-            VyN.setName('syN_'+str(inds))
+            VyN.setName('VsyN_'+str(inds))
+
             self.V.append(VyN)
-            self.VyN.append(VyN)
-            self.VJ.append(VyN)
-            self.J += weight * VyN.V
+            if 'addJ' not in kwargs or kwargs['addJ'] != False:
+                self.Pesos.append(weight)
+                self.VJ.append(VyN)
+                self.J += weight * VyN.V
             
             return VyN
 
@@ -230,25 +222,52 @@ class IHMPCController(object):
             for ind in inds:
                 j += 1
                 ViN += siN[ind]**2 * np.diag(Q)[j]            
-            l = len(self.V)
+            
             weight = csd.MX.sym('w_siN' + str(inds))  # peso do sub_objetivo
+            
             ViN = self.fObj(ViN, weight, X, U, np.append(dU_pred,[syN, siN]), Ysp)
-            ViN.setName('siN_'+str(inds))
+            ViN.setName('VsiN_'+str(inds))
+
             self.V.append(ViN)
             self.F_ViN.append(ViN.F)
-            self.Pesos.append(weight)
-
-            self.VJ.append(ViN)
-            self.J += weight * ViN.V
+            if 'addJ' not in kwargs or kwargs['addJ'] != False:
+                self.Pesos.append(weight)
+                self.VJ.append(ViN)
+                self.J += weight * ViN.V
             
             # ViN must be contractive
-            ViN_ant = csd.MX.sym('ViN_ant_' + str(l))
+            ViN_ant = csd.MX.sym('ViN_ant_' + str(inds))
             ViN.lim(0,ViN_ant)
             self.ViN_ant.append(ViN_ant)
             self.ViNant.append(np.inf)
 
             return ViN
     
+    def subObjComposed(self, **kwargs):
+        X = self.X
+        U = self.U
+        Ysp = self.Ysp
+        syN = self.syN
+        siN = self.siN
+        dU_pred = self.dU_pred
+
+        if 'y' in kwargs:  
+            inds = kwargs['y']
+            Vy = self.subObj(y=inds, Q=kwargs['Q'], addJ=False)
+            VyN = self.subObj(syN=inds, Q=kwargs['Q'], addJ=False)
+            
+            weight = csd.MX.sym('w_yC' + str(inds))  # peso do sub_objetivo
+            self.Pesos.append(weight)
+
+            Vy_composed = self.fObj(Vy.V + VyN.V, weight, X, U, np.append(dU_pred,[syN, siN]), Ysp)
+            self.VJ.append(Vy_composed)
+            self.J += weight * (Vy.V + VyN.V)
+
+            Vy_composed.setType('composed')
+            Vy_composed.setName('VyC_'+str(inds))
+            Vy_composed.Vi = [Vy, VyN]
+
+            return Vy_composed
 
     def _terminalObj(self):
         

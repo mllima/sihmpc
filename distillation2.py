@@ -45,8 +45,11 @@ Q1 = 1
 Q2 = 1
 R = 1
 
-Vy1 = c.subObjComposed(y=[0], Q=Q1)
-Vy2 = c.subObjComposed(y=[1], Q=Q2)
+Vy1 = c.subObj(y=[0], Q=Q1)
+Vy2 = c.subObj(y=[1], Q=Q2)
+
+Vy1N = c.subObj(syN=[0], Q=Q1)
+Vy2N = c.subObj(syN=[1], Q=Q2)
 
 Vi1N = c.subObj(siN=[0], Q=Q1)
 Vi2N = c.subObj(siN=[1], Q=Q2)
@@ -56,9 +59,11 @@ Vdu2 = c.subObj(du=[1], Q=R)
 
 # satisficing limits 
 Vy1.satLim(N*0.1**2)
+Vy1N.satLim(0.01**2)
 Vi1N.satLim(1**2)
 
 Vy2.satLim(N*0.1**2)
+Vy2N.satLim(0.01**2)
 Vi2N.satLim(1**2)
 
 Vdu1.satLim(N*0.5**2)
@@ -66,6 +71,7 @@ Vdu2.satLim(N*0.5**2)
 
 # pesos - inicialização dos pessos (na ordem de criação dos subobjetivos)
 pesos = np.array([1/Vy1.gamma, 1/Vy2.gamma, 
+                  1/Vy1N.gamma, 1/Vy2N.gamma,
                   1/Vi1N.gamma, 1/Vi2N.gamma,
                   1/Vdu1.gamma, 1/Vdu2.gamma])
 
@@ -125,12 +131,12 @@ for k in np.arange(0, tEnd/Ts):
     JPlot.append(J)
 
     #sub-objectives values
-    vy1Plot.append(float(Vy1.Vi[0].F(x, u, w0, ysp)))
-    vy1NPlot.append(float(Vy1.Vi[1].F(x, u, w0, ysp)))
+    vy1Plot.append(float(Vy1.F(x, u, w0, ysp)))
+    vy1NPlot.append(float(Vy1N.F(x, u, w0, ysp)))
     vi1NPlot.append(float(Vi1N.F(x, u, w0, ysp)))
 
-    vy2Plot.append(float(Vy2.Vi[0].F(x, u, w0, ysp)))
-    vy2NPlot.append(float(Vy2.Vi[1].F(x, u, w0, ysp)))
+    vy2Plot.append(float(Vy2.F(x, u, w0, ysp)))
+    vy2NPlot.append(float(Vy2N.F(x, u, w0, ysp)))
     vi2NPlot.append(float(Vi2N.F(x, u, w0, ysp)))
 
     vdu1Plot.append(float(Vdu1.F(x, u, w0, ysp)))

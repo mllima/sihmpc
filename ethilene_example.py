@@ -10,7 +10,7 @@ import control as ctl
 
 # %% Modelo OPOM
 
-Ts = 60  #sec
+Ts = 1  #min
 
 # Transfer functions
 num11 = [10e-4*95, -10e-4]
@@ -95,10 +95,10 @@ c = IHMPCController(sys, N, uub=umax, ulb=umin, duub=dumax, dulb=dumin)
 Q = 1
 R = 1
 
-Vy1 = c.subObj(y=[0], Q=Q)
-Vy2 = c.subObj(y=[1], Q=Q)
-Vy3 = c.subObj(y=[2], Q=Q)
-Vy4 = c.subObj(y=[3], Q=Q)
+Vy1 = c.subObjComposed(y=[0], Q=Q)
+Vy2 = c.subObjComposed(y=[1], Q=Q)
+Vy3 = c.subObjComposed(y=[2], Q=Q)
+Vy4 = c.subObjComposed(y=[3], Q=Q)
 
 Vi1N = c.subObj(siN=[0], Q=Q)
 Vi2N = c.subObj(siN=[1], Q=Q)
@@ -128,9 +128,6 @@ Vdu1.satLim(N*25**2)
 Vdu2.satLim(N*25**2)
 Vdu3.satLim(N*2**2)
 Vdu4.satLim(N*10**2)
-
-# set-points
-ysp = [5.9, 17.85, 277.5, 18.8]
 
 # pesos - inicialização dos pessos
 pesos = np.array([1/Vy1.gamma,  1/Vy2.gamma,  1/Vy3.gamma,  1/Vy4.gamma,
@@ -171,20 +168,19 @@ vdu4Plot = []
 vtPlot = []
 
 u = np.array([6357, 5280, 82, 48]) # controle inicial
-x = np.array([6.22e+00, 1.57e+01, 2.785e+02, 1.81e+01,
-              0,        0,        0,         0,
-              0,        0,        0,         0,
-              0,        0,        0,         0,
-              0,        0,        0,         0])  # initial state = inicial output
+x = np.append([6.22e+00, 1.57e+01, 2.785e+02, 1.81e+01], np.zeros(c.nx-c.nxs))  # initial state = inicial output
 
-tEnd = 50000     	    # Tempo de simulação (seg)
+tEnd = 500     	    # Tempo de simulação (min)
 
 tocMPC = []
 
 w0 = []
 lam_w0 = []
 lam_g0 = []
-   
+
+# set-points
+ysp = [5.9, 17.85, 277.5, 18.8]
+
 for k in np.arange(0, tEnd/Ts):
 
     t1 = time.time()
@@ -210,17 +206,17 @@ for k in np.arange(0, tEnd/Ts):
     JPlot.append(J)
 
     #sub-objectives values
-    vy1Plot.append(float(c.Vysp[0].F(x, u, w0, ysp)))
-    vy1NPlot.append(float(c.VyN[0].F(x, u, w0, ysp)))
+    vy1Plot.append(float(Vy1.Vi[0].F(x, u, w0, ysp)))
+    vy1NPlot.append(float(Vy1.Vi[1].F(x, u, w0, ysp)))
     vi1NPlot.append(float(Vi1N.F(x, u, w0, ysp)))
-    vy2Plot.append(float(c.Vysp[1].F(x, u, w0, ysp)))
-    vy2NPlot.append(float(c.VyN[1].F(x, u, w0, ysp)))
+    vy2Plot.append(float(Vy2.Vi[0].F(x, u, w0, ysp)))
+    vy2NPlot.append(float(Vy2.Vi[1].F(x, u, w0, ysp)))
     vi2NPlot.append(float(Vi2N.F(x, u, w0, ysp)))
-    vy3Plot.append(float(c.Vysp[2].F(x, u, w0, ysp)))
-    vy3NPlot.append(float(c.VyN[2].F(x, u, w0, ysp)))
+    vy3Plot.append(float(Vy3.Vi[0].F(x, u, w0, ysp)))
+    vy3NPlot.append(float(Vy3.Vi[1].F(x, u, w0, ysp)))
     vi3NPlot.append(float(Vi3N.F(x, u, w0, ysp)))
-    vy4Plot.append(float(c.Vysp[3].F(x, u, w0, ysp)))
-    vy4NPlot.append(float(c.VyN[3].F(x, u, w0, ysp)))
+    vy4Plot.append(float(Vy4.Vi[0].F(x, u, w0, ysp)))
+    vy4NPlot.append(float(Vy4.Vi[1].F(x, u, w0, ysp)))
     vi4NPlot.append(float(Vi4N.F(x, u, w0, ysp)))
     vdu1Plot.append(float(Vdu1.F(x, u, w0, ysp)))
     vdu2Plot.append(float(Vdu2.F(x, u, w0, ysp)))
