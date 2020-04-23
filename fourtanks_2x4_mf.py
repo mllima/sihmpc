@@ -23,10 +23,8 @@ f1max = f2max = 2.5 # l/min  pumps capacity
 cf = 1000/60        # factor to convert l/min to cm3/s
 
 gamma = [0.7, 0.6]  # minimum-phase
-#gamma = [0.43, 0.34]
 
 h0 = np.array([12.4, 12.7, 1.8, 1.4]) # cm - inicial level
-
 
 # %% Modelo OPOM
 
@@ -35,6 +33,9 @@ c11 = kc*k1*T[0]/A[0]
 c12 = kc*k2*T[0]/A[0]
 c21 = kc*k1*T[1]/A[1]
 c22 = kc*k2*T[1]/A[1]
+c32 = kc*k2*T[2]/A[2]
+c41 = kc*k1*T[3]/A[3]
+
 
 # Transfer functions
 num11 = [gamma[0]*c11]
@@ -53,46 +54,76 @@ num22 = [gamma[1]*c22]
 den22 = [T[1], 1]
 h22 = TransferFunction(num22, den22, delay=0) 
 
-# General system
-h = [[h11, h12], [h21, h22]]
+num32 = [(1-gamma[1])*c32]
+den32 =[T[2], 1]   
+h32 = TransferFunction(num32, den32, delay=0)  
 
-Ts = 30     # sample time (s)
+num41 = [(1-gamma[0])*c41]
+den41 = [T[3], 1]
+h41 = TransferFunction(num41, den41, delay=0)
+
+# General system
+h = [[h11, h12], [h21, h22], [[], h32], [h41, []]]
+
+Ts = 30   #sec
 sys = OPOM(h, Ts)
+
+# #test
+# sys2 = ctl.StateSpace(sys.A, sys.B, sys.C, sys.D, Ts)
+# T = [i for i in range(0,2000,Ts)]
+# T, yout = ctl.impulse_response(sys2, T=T, input=1)
+
+# plt.step(T,yout[0], label=['1'])
+# plt.step(T,yout[1], label=['2'])
+# plt.step(T,yout[2], label=['3'])
+# plt.step(T,yout[3], label=['4'])
+# plt.legend()
+# plt.show()
+
 
 # %% Controlador
 
-N = 10  # horizon in steps
-c = IHMPCController(sys, N, ulb = [0, 0], uub = [f1max*cf, f1max*cf])
+N = 15  # horizon in steps
+c = IHMPCController(sys, N) #, ulb = [0, 0], uub = [f1max*cf, f1max*cf])
 
 # sub-objectives
 Q = 1
 R = 1
 
-Vy1 = c.subObj(y=[0], Q=Q, sat= N*(0.5)**2)
-Vy2 = c.subObj(y=[1], Q=Q, sat= N*(0.5)**2)
+Vy1 = c.subObjComposed(y=[0], Q=Q, sat= N*0.5**2)
+Vy2 = c.subObjComposed(y=[1], Q=Q, sat= N*0.5**2)
+Vy3 = c.subObjComposed(y=[2], Q=Q, sat= N*3**2)
+Vy4 = c.subObjComposed(y=[3], Q=Q, sat= N*3**2)
 
-Vy1N = c.subObj(syN=[0], Q=Q, sat= 0.5**2)
-Vy2N = c.subObj(syN=[1], Q=Q, sat= 0.5**2)
+# Vy1N = c.subObj(syN=[0], Q=Q, sat= 0.5**2)
+# Vy2N = c.subObj(syN=[1], Q=Q, sat= 0.5**2)
+# Vy3N = c.subObj(syN=[2], Q=Q, sat= 3**2)
+# Vy4N = c.subObj(syN=[3], Q=Q, sat= 3**2)
 
 Vi1N = c.subObj(siN=[0], Q=Q, sat= 0.1**2)
 Vi2N = c.subObj(siN=[1], Q=Q, sat= 0.1**2)
+Vi3N = c.subObj(siN=[2], Q=Q, sat= 0.1**2)
+Vi4N = c.subObj(siN=[3], Q=Q, sat= 0.1**2)
 
 Vdu1 = c.subObj(du=[0], Q=R, sat=N*2.5**2)
 Vdu2 = c.subObj(du=[1], Q=R, sat=N*2.5**2)
 
 # pesos - inicialização dos pessos (na ordem de criação dos subobjetivos)
 pesos = np.array([1/Vy1.gamma, 1/Vy2.gamma,
-                  1/Vy1N.gamma, 1/Vy2N.gamma,
+                  1/Vy3.gamma, 1/Vy4.gamma,
+                #   1/Vy1N.gamma, 1/Vy2N.gamma,
+                #   1/Vy3N.gamma, 1/Vy4N.gamma, 
                   1/Vi1N.gamma, 1/Vi2N.gamma,
+                  1/Vi3N.gamma, 1/Vi4N.gamma,
                   1/Vdu1.gamma, 1/Vdu2.gamma])
 
 # %% Closed loop
 
-u = [10, 10]  	 
-x = np.append([0, 0], np.zeros(c.nx-c.nxs)) 	# Estado inicial
-ysp = np.array([12.4, 15.0])  
+u = [10, 10]  	# controle anterior (V)
+x = np.append([0, 0, 5, 5], np.zeros(c.nx-c.nxs)) 	# Estado inicial
+Ysp = h0
 
-tEnd = 500     	    # Tempo de simulação (seg)
+tEnd = 1000     	    # Tempo de simulação 
 
 w0 = []
 lam_w0 = []
@@ -100,25 +131,25 @@ lam_g0 = []
 
 JPlot = []
 duPlot = []
-yPlot = []
+yPlot = [(sys.C@x + h0).reshape(c.ny,1)]
 uPlot = []
 xPlot = []
 pesosPlot = []
 vPlot = []
 vJ = []
 
-tocMPC = []   
+tocMPC = []    
 for k in np.arange(0, tEnd/Ts):
 
     t1 = time.time()
     pesosPlot += [pesos]
         
     # #to test a change in the set-point    
-    if k > (tEnd/2)/Ts: 
-        ysp[0] = 10
+    # if k > (tEnd/10)/Ts: 
+    #     Ysp = h0 + [0, 0, 10, 10]
 
-    dysp = ysp - h0[0:2]
-    sol = c.mpc(x0=x, ySP=dysp, w0=w0, u0=u, pesos=pesos, lam_w0=lam_w0, lam_g0=lam_g0, ViN_ant=[])
+    ysp = Ysp - h0
+    sol = c.mpc(x0=x, ySP=ysp, w0=w0, u0=u, pesos=pesos, lam_w0=lam_w0, lam_g0=lam_g0, ViN_ant=[])
     
     t2 = time.time()
     tocMPC += [t2-t1]
@@ -145,12 +176,13 @@ for k in np.arange(0, tEnd/Ts):
         v.append(float(c.VJ[i].F(x, u, w0, ysp)))
     vJ.append(v)
 
+
     # ## Simula o sistema ###
     res = c.dynF(x0=x, du0=du, u0=u)
     x = res['xkp1'].full()
     u = res['ukp1'].full()
     y = res['ykp1'].full()
-    yPlot.append(y + h0[0:2].reshape(2,1))
+    yPlot.append(y + h0.reshape(c.ny, 1))
     uPlot.append(u)
     xPlot.append(x)
 
@@ -168,7 +200,7 @@ print('Tempo de execução do MPC. Média: %2.3f s, Max: %2.3f s' %
 
 # %% Plot
 
-t = np.arange(0, tEnd, Ts)
+t = np.arange(Ts, tEnd+Ts, Ts)
 
 yPlot = np.hstack(yPlot)
 duPlot = np.hstack(duPlot)
@@ -183,7 +215,7 @@ fig1 = plt.figure(1)
 fig1.suptitle("Output and Control Signals")
 fig1.text(0.5, 0.04, 'Time', ha='center', va='center')
 plt.subplot(1, 3, 1)
-plt.plot(t, yPlot.T)
+plt.plot(np.append([0],t), yPlot.T)
 plt.legend(loc=0, fontsize='large')
 plt.grid()
 plt.legend(['y{}'.format(i) for i in range(len(yPlot[0]))])

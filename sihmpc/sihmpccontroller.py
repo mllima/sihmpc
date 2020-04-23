@@ -7,6 +7,7 @@ import casadi as csd
 import numpy as np
 from opom import OPOM
 import scipy as sp
+from scipy import linalg
 
 
 class SIHMPCController(object):
@@ -195,7 +196,7 @@ class SIHMPCController(object):
         #Q_lyap = self.sys.F.T.dot(self.sys.Psi.T).dot(self.Qy).dot(self.sys.Psi).dot(self.sys.F)
         Q_lyap = self.sys.F.T@self.sys.Psi.T@self.Qy@self.sys.Psi@self.sys.F
         #Q_lyap = np.eye(self.nxd)
-        Q_bar = sp.linalg.solve_discrete_lyapunov(self.sys.F, Q_lyap, method='bilinear')
+        Q_bar = linalg.solve_discrete_lyapunov(self.sys.F, Q_lyap, method='bilinear')
         Vt = csd.dot(XdN**2, csd.diag(Q_bar))
         self.Q_bar = Q_bar
         
@@ -296,7 +297,7 @@ class SIHMPCController(object):
         # loop para retornar o resultado em matriz
         du_opt = []
         index = 0
-        for kk in range(0, self.N):
+        for _ in range(0, self.N):
             auxU = sol['x'][index:(index+self.nu)]
             du_opt = csd.horzcat(du_opt, auxU)
             index = index + self.nu
