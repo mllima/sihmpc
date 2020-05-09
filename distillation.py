@@ -7,7 +7,9 @@ from sihmpc import IHMPCController
 import time
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
 import control as ctl
+import plotly.graph_objects as go
 
 # %% Modelo OPOM
 
@@ -31,8 +33,17 @@ num22 = [-19.4]
 den22 = [14.4, 1]
 h22 = TransferFunction(num22, den22, delay=3)
 
+    # input distillation flow
+num1F = [3.8]
+den1F = [14.9, 1]
+h1F = TransferFunction(num1F, den1F, delay=8)
+
+num2F = [4.9]
+den2F = [13.2, 1]
+h2F = TransferFunction(num2F, den2F, delay=3)
+
 # General system
-h = [[h11, h12], [h21, h22]]
+h = [[h11, h12, h1F], [h21, h22, h2F]]
 sys = OPOM(h, Ts)
 
 # %% Controlador
@@ -41,73 +52,58 @@ N = 10  # horizon in steps
 c = IHMPCController(sys, N)
 
 # sub-objectives
-Q1 = 1
-Q2 = 1
+Q = 1
 R = 1
 
-Vy1 = c.subObjComposed(y=[0], Q=Q1)
-Vy2 = c.subObjComposed(y=[1], Q=Q2)
+Vy1 = c.subObjComposed(y=[0], Q=Q, sat=N*0.1**2)
+Vy2 = c.subObjComposed(y=[1], Q=Q, sat=N*0.5**2)
 
-Vi1N = c.subObj(siN=[0], Q=Q1)
-Vi2N = c.subObj(siN=[1], Q=Q2)
+Vdu1 = c.subObj(du=[0], Q=R, sat=N*0.2**2)
+Vdu2 = c.subObj(du=[1], Q=R, sat=N*0.15**2)
 
-Vdu1 = c.subObj(du=[0], Q=R)
-Vdu2 = c.subObj(du=[1], Q=R)
-
-# satisficing limits 
-Vy1.satLim(N*0.1**2)
-Vi1N.satLim(1**2)
-
-Vy2.satLim(N*0.1**2)
-Vi2N.satLim(1**2)
-
-Vdu1.satLim(N*0.5**2)
-Vdu2.satLim(N*0.5**2)
+Vi1N = c.subObj(siN=[0], Q=Q, sat=1**2, addJ=False)
+Vi2N = c.subObj(siN=[1], Q=Q, sat=1**2, addJ=False)
 
 # pesos - inicialização dos pessos (na ordem de criação dos subobjetivos)
-pesos = np.array([1/Vy1.gamma, 1/Vy2.gamma, 
-                  1/Vi1N.gamma, 1/Vi2N.gamma,
-                  1/Vdu1.gamma, 1/Vdu2.gamma])
+pesos = np.array([1/Vy1.gamma, 1/Vy2.gamma,   
+                  1/Vdu1.gamma, 1/Vdu2.gamma,
+                  #1/Vi1N.gamma, 1/Vi2N.gamma
+                 ])
 
 # %% Closed loop
-JPlot = []
-duPlot = []
-yPlot = []
-uPlot = []
-xPlot = []
-pesosPlot = []
-vy1Plot = []
-vy1NPlot = []
-vi1NPlot = []
-vy2Plot = []
-vy2NPlot = []
-vi2NPlot = []
-vdu1Plot = []
-vdu2Plot = []
-vtPlot = []
 
-u = np.ones(sys.nu)*0  	# controle anterior
-x = np.append([96, 0.5], np.zeros(sys.nx-2)) 	# Estado inicial
-tEnd = 50     	    # Tempo de simulação
+u = [1.95, 1.71, 2.45]  	# controle anterior [Reflux, Steam, Feed] <lb/min>
+c.ulb[2] = u[2]
+c.uub[2] = u[2]
+x = np.append([96, 0.5], np.zeros(sys.nx-2)) 	# Estado inicial 
+ysp = [96, 0.5]                                 # Consentrações de saída [xD, xB] <mol%>
 
-tocMPC = []
-
-ysp = [96, 0.5]
+tEnd = 200     	    # Tempo de simulação
 
 w0 = []
 lam_w0 = []
 lam_g0 = []
-    
+
+JPlot = []
+duPlot = []
+yPlot = [(sys.C@x).reshape(c.ny,1)]
+uPlot = []
+xPlot = []
+pesosPlot = []
+vPlot = []
+vJ = []
+
+tocMPC = []    
 for k in np.arange(0, tEnd/Ts):
 
     t1 = time.time()
     pesosPlot += [pesos]
         
-    #to test a change in the set-point    
+    # to test a change in the set-point    
     if k > (tEnd/10)/Ts: 
-        ysp = [99, 0.1]
-    # if k > (tEnd/2)/Ts: 
-    #     ysp = [99, 0.1]
+        ysp = [96, 1]
+    # if k > (tEnd/10)/Ts: 
+    #     c.ulb[2] = c.uub[2] = 2.45 *1.15
 
     sol = c.mpc(x0=x, ySP=ysp, w0=w0, u0=u, pesos=pesos, lam_w0=lam_w0, lam_g0=lam_g0, ViN_ant=[])
     
@@ -124,19 +120,17 @@ for k in np.arange(0, tEnd/Ts):
     J = float(sol['J'])
     JPlot.append(J)
 
-    #sub-objectives values
-    vy1Plot.append(float(Vy1.Vi[0].F(x, u, w0, ysp)))
-    vy1NPlot.append(float(Vy1.Vi[1].F(x, u, w0, ysp)))
-    vi1NPlot.append(float(Vi1N.F(x, u, w0, ysp)))
+    #all sub-objectives values
+    v=[]
+    for i in range(len(c.V)):
+        v.append(float(c.V[i].F(x, u, w0, ysp)))
+    vPlot.append(v)
 
-    vy2Plot.append(float(Vy2.Vi[0].F(x, u, w0, ysp)))
-    vy2NPlot.append(float(Vy2.Vi[1].F(x, u, w0, ysp)))
-    vi2NPlot.append(float(Vi2N.F(x, u, w0, ysp)))
-
-    vdu1Plot.append(float(Vdu1.F(x, u, w0, ysp)))
-    vdu2Plot.append(float(Vdu2.F(x, u, w0, ysp)))
-    #terminal cost
-    vtPlot.append(float(c.Vt.F(x, u, w0, ysp)))
+    #sub-objectives that are in the objective function
+    v=[]
+    for i in range(len(c.VJ)):
+        v.append(float(c.VJ[i].F(x, u, w0, ysp)))
+    vJ.append(v)
 
     # ## Simula o sistema ###
     res = c.dynF(x0=x, du0=du, u0=u)
@@ -154,52 +148,46 @@ for k in np.arange(0, tEnd/Ts):
     new_pesos = c.satWeights(x, u, du_warm, ysp)
     alfa = 0.7
     pesos = alfa*pesos + (1-alfa)*new_pesos
-
     
-print('Tempo de execução do MPC. Média: %2.3f s, Max: %2.3f s' %
-                                    (np.mean(tocMPC), np.max(tocMPC)))
+print('Tempo de execução do MPC. Média: {:.3f} s, Max: {:.3f} s (index: {:d}/{:d})'.format(np.mean(tocMPC), 
+                np.max(tocMPC), tocMPC.index(np.max(tocMPC)), int(k)))
 
 # %% Plot
 
-t = np.arange(0, tEnd, Ts)
+t = np.arange(Ts, tEnd+Ts, Ts)
 
 yPlot = np.hstack(yPlot)
 duPlot = np.hstack(duPlot)
 uPlot = np.hstack(uPlot)
 xPlot = np.hstack(xPlot)
+vPlot = np.vstack(vPlot).T
+vJ = np.vstack(vJ).T
 JPlot = np.hstack(JPlot)
-pesosPlot = np.array(pesosPlot)
+pesosPlot = np.array(pesosPlot).T
 
 fig1 = plt.figure(1)
 fig1.suptitle("Output and Control Signals")
 fig1.text(0.5, 0.04, 'Time', ha='center', va='center')
-plt.subplot(4, 1, 1)
-plt.step(t, yPlot[0,:])
-plt.legend(loc=0, fontsize='large')
-plt.grid()
-plt.legend(['y_1'])
-plt.subplot(4, 1, 2)
-plt.step(t, yPlot[1,:])
-plt.grid()
-plt.legend(['y_2'])
-plt.subplot(4, 1, 3)
+grid = plt.GridSpec(2, 3)  # 2 rows 3 cols
+
+plt.subplot(grid[0,0])
+plt.plot(np.append([0],t), yPlot[0], label='y0')
+plt.legend()
+
+plt.subplot(grid[1,0])
+plt.plot(np.append([0],t), yPlot[1], label='y1')
+plt.legend()
+
+plt.subplot(grid[:,1])
 plt.step(t, duPlot.T)
-plt.legend(loc=0, fontsize='large')
-plt.grid()
+plt.legend()
 plt.legend(['du{}'.format(i) for i in range(np.shape(duPlot)[0])])
-plt.subplot(4, 1, 4)
+
+plt.subplot(grid[:,2])
 plt.step(t, uPlot.T)
 plt.legend(loc=0, fontsize='large')
-plt.grid()
 plt.legend(['u{}'.format(i) for i in range(np.shape(uPlot)[0])])
 
-# import pdb
-# pdb.set_trace()
-
-#plt.show()
-# plt.savefig("SIHMPCOutput.png")
-
-#
 fig2 = plt.figure(2)
 fig2.suptitle("OPOM Variables")
 fig2.text(0.5, 0.04, 'Time', ha='center', va='center')
@@ -220,60 +208,67 @@ for i in range(c.nx):
     plt.grid()
     plt.legend()
 
-#plt.show()
-#plt.savefig("SisoSIHMPCopomVar.png")
-
 fig3 = plt.figure(3)
 fig3.suptitle("Weights")
 fig3.text(0.5, 0.04, 'Time', ha='center', va='center')
 nw = len(pesos)
-y = round(nw/4+0.5)
+y = round(np.sqrt(nw)+0.5)
 x = round(nw/y+0.5)
-#seg = [0,2,1,3,4]
 for i in range(nw):
     plt.subplot(x, y, i+1)
     label = c.VJ[i].weight.name()
-    plt.step(t, pesosPlot[:,i], label=label) #'w'+str(i+1))
+    plt.step(t, pesosPlot[i], label=label) #'w'+str(i+1))
     plt.legend(loc=0, fontsize='large')
     plt.grid()
     plt.legend()
-#plt.show()
-#plt.savefig("SisoSIHMPWeigthVar.png")
 
 fig4 = plt.figure(4)
 fig4.suptitle("Total Cost")
 fig4.text(0.5, 0.04, 'Time', ha='center', va='center')
 plt.plot(t,JPlot)
-#plt.show()
 
 fig5 = plt.figure(5)
 fig5.suptitle("Local Costs")
-fig5.text(0.5, 0.04, 'Time', ha='center', va='center')
-plt.subplot(3,3,1)
-plt.step(t,vy1Plot)
-plt.legend(['Vy1'])
-plt.subplot(3,3,2)
-plt.step(t,vy1NPlot)
-plt.legend(['Vy1N'])
-plt.subplot(3,3,3)
-plt.step(t,vi1NPlot)
-plt.legend(['Vi1N'])
-plt.subplot(3,3,4)
-plt.step(t,vy2Plot)
-plt.legend(['Vy2'])
-plt.subplot(3,3,5)
-plt.step(t,vy2NPlot)
-plt.legend(['Vy2N'])
-plt.subplot(3,3,6)
-plt.step(t,vi2NPlot)
-plt.legend(['Vi2N'])
-plt.subplot(3,3,7)
-plt.step(t,vdu1Plot)
-plt.legend(['Vdu1'])
-plt.subplot(3,3,8)
-plt.step(t,vdu2Plot)
-plt.legend(['Vdu2'])
+l = len(c.V)
+y = round(np.sqrt(l)+0.5)
+x = round(l/y+0.5)
+for i in range(l):
+    plt.subplot(x,y,i+1)
+    label = c.V[i].name
+    plt.step(t,vPlot[i], label = label)
+    plt.legend()
+
+fig6 = plt.figure(6)
+fig6.suptitle("Weighted Local Costs")
+l = len(c.VJ)
+y = round(np.sqrt(l)+0.5)
+x = round(l/y+0.5)
+for i in range(l):
+    plt.subplot(x,y,i+1)
+    label = c.VJ[i].weight.name() + '*' + c.VJ[i].name 
+    plt.step(t,pesosPlot[i]*vJ[i], label = label)
+    plt.legend()
+
+fig7 =plt.figure(7)
+fig7.suptitle("Normalized Weights")
+nw = len(pesos)
+y = round(np.sqrt(nw)+0.5)
+x = round(nw/y+0.5)
+
+for i in range(nw):
+    #plt.subplot(x,y,i+1)
+    label = 'n' + c.VJ[i].weight.name() 
+    plt.step(t,pesosPlot[i]*c.VJ[i].gamma, label = label)
+    plt.legend()
 
 plt.show()
+
+fig = go.Figure()
+for i in range(nw):
+    label = 'n' + c.VJ[i].weight.name() 
+    fig.add_trace(go.Scatter(x=t, y=pesosPlot[i]*c.VJ[i].gamma,
+                    mode='lines',
+                    name=label))
+fig.show()
 
 pass

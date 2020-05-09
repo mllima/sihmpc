@@ -9,67 +9,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import control as ctl
-import plotly.graph_objects as go
 import casadi as csd
 
 # %% Modelo OPOM
-
-Ts = 1  #min
-
-
-##### Planta real
-
-num11 = [12.8]
-den11 = [16.7, 1]
-h11 = TransferFunction(num11, den11, delay=1)  
-
-num12 = [-18.9]
-den12 = [21.0, 1]
-h12 = TransferFunction(num12, den12, delay=3)
-
-num21 = [6.6]
-den21 = [10.9, 1]
-h21 = TransferFunction(num21, den21, delay=7)
-
-num22 = [-19.4]
-den22 = [14.4, 1]
-h22 = TransferFunction(num22, den22, delay=3)
-
-#     # input distillation flow
-# num1F = [3.8]
-# den1F = [14.9, 1]
-# h1F = TransferFunction(num1F, den1F, delay=8)
-
-# num2F = [4.9]
-# den2F = [13.2, 1]
-# h2F = TransferFunction(num2F, den2F, delay=3)
-
-#
-hreal = [[h11, h12], [h21, h22]]
-sysReal = OPOM(hreal, Ts)
-
-def sysF(sys):
-    #return the casadi function that represent the dynamic system
-    
-    X = csd.MX.sym('x', sys.nx)
-    U = csd.MX.sym('u', sys.nu)
-    dU = csd.MX.sym('du', sys.nu)
-
-    A = sys.A
-    B = sys.B
-    C = sys.C
-    D = sys.D
-    
-    Xkp1 = csd.mtimes(A, X) + csd.mtimes(B, dU)
-    Ykp1 = csd.mtimes(C, Xkp1) + csd.mtimes(D, dU)
-    Ukp1 = U + dU
-
-    F = csd.Function('F', [X, U, dU], [Xkp1, Ykp1, Ukp1],
-                    ['x0', 'u0', 'du0'],
-                    ['xkp1', 'ykp1', 'ukp1'])
-    return F
-
-sysR = sysF(sysReal)
 
 ##### Modelo
 
@@ -89,8 +31,12 @@ num22 = [-19.4]
 den22 = [14.4, 1]
 h22 = TransferFunction(num22, den22, delay=3)
 
-# General system
+# Sistema acoplado
 h = [[h11, h12], [h21, h22]]
+
+# %%% modelo OPOM
+
+Ts = 1  #min
 sys = OPOM(h, Ts)
 
 # %% Controlador
@@ -108,19 +54,19 @@ Vy2 = c.subObjComposed(y=[1], Q=Q, sat=N*0.5**2)
 Vdu1 = c.subObj(du=[0], Q=R, sat=N*0.3**2)
 Vdu2 = c.subObj(du=[1], Q=R, sat=N*0.31**2)
 
-Vi1N = c.subObj(siN=[0], Q=Q, addJ=False)
+Vi1N = c.subObj(siN=[0], Q=Q, addJ=False)   # addJ exclui o subobjetivo da função objetivo
 Vi2N = c.subObj(siN=[1], Q=Q, addJ=False)
 
 # pesos - inicialização dos pessos (na ordem de criação dos subobjetivos)
 pesos = np.array([1/Vy1.gamma, 1/Vy2.gamma,  
-                  1/Vdu1.gamma, 1/Vdu2.gamma,
+                  1/Vdu1.gamma, 1/Vdu2.gamma
                  ])
 
-# %% Closed loop
+# %%% Closed loop
 
-u = [1.95, 1.71]  	# controle anterior [Reflux, Steam] <lb/min>
+u = [1.95, 1.71]  	                            # controle anterior [Reflux, Steam] <lb/min>
 x = np.append([96, 0.5], np.zeros(sys.nx-2)) 	# Estado inicial 
-ysp = [96, 0.5]                                 # Consentrações de saída [xD, xB] <mol%>
+ysp = [96, 0.5]                                 # Concentrações de saída [xD, xB] <mol%>
 
 tEnd = 600     	    # Tempo de simulação
 
@@ -178,7 +124,7 @@ for k in np.arange(0, tEnd/Ts):
 
 
     # ## Simula o sistema ###
-    res = sysR(x0=x, du0=du, u0=u)
+    res = c.dynF(x0=x, du0=du, u0=u)
     x = res['xkp1'].full()
     u = res['ukp1'].full()
     y = res['ykp1'].full()
@@ -187,10 +133,8 @@ for k in np.arange(0, tEnd/Ts):
     xPlot.append(x)
 
     w0 = c.warmStart(sol, ysp)
-    
-    du_warm = w0
 
-    new_pesos = c.satWeights(x, u, du_warm, ysp)
+    new_pesos = c.satWeights(x, u, w0, ysp)
     alfa = 0.0
     pesos = alfa*pesos + (1-alfa)*new_pesos
 
@@ -309,13 +253,5 @@ for i in range(nw):
     plt.legend()
 
 plt.show()
-
-fig = go.Figure()
-for i in range(nw):
-    label = 'n' + c.VJ[i].weight.name() 
-    fig.add_trace(go.Scatter(x=t, y=pesosPlot[i]*c.VJ[i].gamma,
-                    mode='lines',
-                    name=label))
-fig.show()
 
 pass

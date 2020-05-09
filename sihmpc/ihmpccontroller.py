@@ -156,7 +156,6 @@ class IHMPCController(object):
                 for k in range(0, N):
                     # sub-objetivo em y
                     Vy += (Y_pred[k][ind] - Ysp[ind] - syN[ind] - (k+1-N)*Ts*siN[ind])**2 *np.diag(Q)[j]           
-                    #Vy += (Y_pred[k][ind] - Ysp[ind] - (k+1-N)*Ts*siN[ind])**2 *np.diag(Q)[j]
             weight = csd.MX.sym('w_y' + str(inds))  # peso do sub_objetivo
             Vy = self.fObj(Vy, weight, X, U, np.append(dU_pred,[syN, siN]), Ysp)
             Vy.setName('Vy_'+str(inds))
@@ -433,7 +432,7 @@ class IHMPCController(object):
         opt = {'expand': False, 'jit': False,
                 'verbose_init': 0, 'print_time': False}
         ipopt = {'print_level': 0, 'print_timing_statistics': 'no',
-                  'warm_start_init_point': 'yes'}
+                  'warm_start_init_point': 'yes', 'max_iter': 5000, 'tol': 1e-16}
         opt['ipopt'] = ipopt
         
         # optimization problem
@@ -487,22 +486,13 @@ class IHMPCController(object):
         dustart = w0[0:-2*self.ny].full() # retira syN e siN
         dustart = dustart[self.nu:] # remove firts du
         dustart = np.vstack((dustart, np.zeros((self.nu,1)))) # add 0 at the end
-        dustart = dustart.flatten()
-        
-        # xN = sol['x_pred'][-self.nx:]
-        # xsN = xN[0:self.nxs]
-        # xiN = xN[self.nxs+self.nxd:self.nxs+self.nxd+self.nxi]   
-        # syNnext = xsN - np.array(ysp).reshape(self.ny,1)
-        # siNnext = xiN      
+        dustart = dustart.flatten() 
 
         xN = sol['x_pred'][-self.nx:]
-
         res = self.dynF(x0=xN, u0=np.zeros(self.nu), du0=np.zeros(self.nu))
-        Xknext = res['xkp1'].full()
-        
+        Xknext = res['xkp1'].full() 
         xsNp2 = Xknext[0:self.nxs]
         xiNp2 = Xknext[self.nxs+self.nxd:self.nxs+self.nxd+self.nxi]   
-        
         syNnext = xsNp2 - np.array(ysp).reshape(self.ny,1)
         siNnext = xiNp2
         
@@ -517,7 +507,7 @@ class IHMPCController(object):
             ViN_ant = self.ViNant  
         sol = MPC(x0=x0, ySP=ySP, w0=w0, u0=u0, pesos=pesos, lam_w0=lam_w0, lam_g0=lam_g0, ViN_ant=ViN_ant)
         
-        # ##falta atualizar self.ViNant
+        ##falta atualizar self.ViNant
         # xN = sol['x_pred'][-self.nx:]
         # xiN = xN[self.nxs+self.nxd:self.nxs+self.nxd+self.nxi]
         # du = sol['du_opt'][:, 0].full()
