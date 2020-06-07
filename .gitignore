@@ -1,5 +1,6 @@
 old/
 .vscode/
 /*.py
+*.dat
 !/example*
 !/test*

@@ -3,6 +3,7 @@
 
 from opom import OPOM, TransferFunction
 from sihmpc import IHMPCController
+import teste as tst
 
 import time
 import numpy as np
@@ -48,17 +49,24 @@ c = IHMPCController(sys, N, ulb=[0,0])
 Q = 1
 R = 1
 
-Vy1 = c.subObjComposed(y=[0], Q=Q, sat=N*1**2)
-Vy2 = c.subObjComposed(y=[1], Q=Q, sat=N*0.5**2)
+Vy1 = c.subObjComposed(y=[0], Q=Q, sat=N*0.5**2)
+Vy2 = c.subObjComposed(y=[1], Q=Q, sat=N*2.0**2)
+
+# Vy1 = c.subObj(y=[0], Q=Q, sat=N*0.5**2)
+# Vy2 = c.subObj(y=[1], Q=Q, sat=N*1.0**2)
+
+# Vy1N = c.subObj(syN=[0], Q=Q, sat=N*0.5**2)
+# Vy2N = c.subObj(syN=[1], Q=Q, sat=N*1.0**2)
 
 Vdu1 = c.subObj(du=[0], Q=R, sat=N*0.3**2)
-Vdu2 = c.subObj(du=[1], Q=R, sat=N*0.31**2)
+Vdu2 = c.subObj(du=[1], Q=R, sat=N*0.3**2)
 
 Vi1N = c.subObj(siN=[0], Q=Q, addJ=False)   # addJ exclui o subobjetivo da função objetivo
 Vi2N = c.subObj(siN=[1], Q=Q, addJ=False)
 
 # pesos - inicialização dos pessos (na ordem de criação dos subobjetivos)
 pesos = np.array([1/Vy1.gamma, 1/Vy2.gamma,  
+                  #1/Vy1N.gamma, 1/Vy2N.gamma,
                   1/Vdu1.gamma, 1/Vdu2.gamma
                  ])
 
@@ -68,7 +76,7 @@ u = [1.95, 1.71]  	                            # controle anterior [Reflux, Stea
 x = np.append([96, 0.5], np.zeros(sys.nx-2)) 	# Estado inicial 
 ysp = [96, 0.5]                                 # Concentrações de saída [xD, xB] <mol%>
 
-tEnd = 600     	    # Tempo de simulação
+tEnd = 800     	    # Tempo de simulação
 
 w0 = []
 lam_w0 = []
@@ -82,8 +90,11 @@ xPlot = []
 pesosPlot = []
 vPlot = []
 vJ = []
+gg = []
+ss = []
 
-tocMPC = []    
+tocMPC = []   
+
 for k in np.arange(0, tEnd/Ts):
 
     t1 = time.time()
@@ -92,6 +103,7 @@ for k in np.arange(0, tEnd/Ts):
     # to test a change in the set-point    
     if k > (tEnd/10)/Ts: 
         ysp = [96, 1]
+
     if k > (tEnd/2)/Ts: 
         ysp = [95.5, 1]
 
@@ -105,7 +117,7 @@ for k in np.arange(0, tEnd/Ts):
     lam_g0 = sol['lam_g']
     
     du = sol['du_opt'][:, 0].full()
-    duPlot += [du]
+    #duPlot += [du]
 
     J = float(sol['J'])
     JPlot.append(J)
@@ -122,7 +134,6 @@ for k in np.arange(0, tEnd/Ts):
         v.append(float(c.VJ[i].F(x, u, w0, ysp)))
     vJ.append(v)
 
-
     # ## Simula o sistema ###
     res = c.dynF(x0=x, du0=du, u0=u)
     x = res['xkp1'].full()
@@ -131,13 +142,17 @@ for k in np.arange(0, tEnd/Ts):
     yPlot.append(y)
     uPlot.append(u)
     xPlot.append(x)
+    duPlot += [du]
 
     w0 = c.warmStart(sol, ysp)
 
-    new_pesos = c.satWeights(x, u, w0, ysp)
+    #vv,p, jy, js = tst.v(x,u,w0,ysp,N,c.dynF)
+
+    new_pesos, g, s = c.satWeights2(x, u, w0, ysp)
     alfa = 0.0
     pesos = alfa*pesos + (1-alfa)*new_pesos
-
+    gg.append(g)
+    ss.append(s)
     
 print('Tempo de execução do MPC. Média: {:.3f} s, Max: {:.3f} s (index: {:d}/{:d})'.format(np.mean(tocMPC), 
                 np.max(tocMPC), tocMPC.index(np.max(tocMPC)), int(k)))
@@ -204,7 +219,8 @@ fig3.text(0.5, 0.04, 'Time', ha='center', va='center')
 nw = len(pesos)
 y = round(np.sqrt(nw)+0.5)
 x = round(nw/y+0.5)
-leg = ['$w_{x_D}$', '$w_{x_B}$', '$w_{R}$', '$w_{S}$']
+#leg = ['$w_{x_D}$', '','$w_{x_B}$', '','$w_{R}$', '$w_{S}$']
+leg = ['$w_{x_D}$','$w_{x_B}$','$w_{R}$', '$w_{S}$']
 for i in range(nw):
     plt.subplot(x, y, i+1)
     label = leg[i] #c.VJ[i].weight.name()
@@ -254,4 +270,20 @@ for i in range(nw):
 
 plt.show()
 
+import plotly.graph_objects as go
+fig = go.Figure()
+for i in range(nw):
+    label = 'n' + c.VJ[i].weight.name() 
+    fig.add_trace(go.Scatter(x=t, y=pesosPlot[i]*c.VJ[i].gamma,
+                    mode='lines',
+                    name=label))
+fig.show()
+
 pass
+
+import pickle
+file = 'dist_{}_{}_{}_{}_{}.dat'.format(N, np.sqrt(Vy1.gamma/N), np.sqrt(Vy2.gamma/N),
+                                        np.sqrt(Vdu1.gamma/N),np.sqrt(Vdu2.gamma/N))
+outfile = open(file,'wb')
+pickle.dump((yPlot, duPlot, uPlot, xPlot, vPlot, vJ, JPlot, pesosPlot),outfile)
+outfile.close()
