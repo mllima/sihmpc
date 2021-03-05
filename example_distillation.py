@@ -3,7 +3,6 @@
 
 from opom import OPOM, TransferFunction
 from sihmpc import IHMPCController
-import teste as tst
 
 import time
 import numpy as np
@@ -52,23 +51,17 @@ R = 1
 Vy1 = c.subObjComposed(y=[0], Q=Q, sat=N*0.5**2)
 Vy2 = c.subObjComposed(y=[1], Q=Q, sat=N*2.0**2)
 
-# Vy1 = c.subObj(y=[0], Q=Q, sat=N*0.5**2)
-# Vy2 = c.subObj(y=[1], Q=Q, sat=N*1.0**2)
-
-# Vy1N = c.subObj(syN=[0], Q=Q, sat=N*0.5**2)
-# Vy2N = c.subObj(syN=[1], Q=Q, sat=N*1.0**2)
-
 Vdu1 = c.subObj(du=[0], Q=R, sat=N*0.3**2)
 Vdu2 = c.subObj(du=[1], Q=R, sat=N*0.3**2)
 
 Vi1N = c.subObj(siN=[0], Q=Q, addJ=False)   # addJ exclui o subobjetivo da função objetivo
 Vi2N = c.subObj(siN=[1], Q=Q, addJ=False)
 
+# recalcula os pesos do custo terminal
+c.init_Qt()
+
 # pesos - inicialização dos pessos (na ordem de criação dos subobjetivos)
-pesos = np.array([1/Vy1.gamma, 1/Vy2.gamma,  
-                  #1/Vy1N.gamma, 1/Vy2N.gamma,
-                  1/Vdu1.gamma, 1/Vdu2.gamma
-                 ])
+pesos = c.init_pesos()
 
 # %%% Closed loop
 
@@ -90,18 +83,15 @@ xPlot = []
 pesosPlot = []
 vPlot = []
 vJ = []
-gg = []
-ss = []
 
 tocMPC = []   
-
 for k in np.arange(0, tEnd/Ts):
 
     t1 = time.time()
     pesosPlot += [pesos]
         
     # to test a change in the set-point    
-    if k > (tEnd/10)/Ts: 
+    if k > 50/Ts: 
         ysp = [96, 1]
 
     if k > (tEnd/2)/Ts: 
@@ -117,7 +107,6 @@ for k in np.arange(0, tEnd/Ts):
     lam_g0 = sol['lam_g']
     
     du = sol['du_opt'][:, 0].full()
-    #duPlot += [du]
 
     J = float(sol['J'])
     JPlot.append(J)
@@ -146,13 +135,9 @@ for k in np.arange(0, tEnd/Ts):
 
     w0 = c.warmStart(sol, ysp)
 
-    #vv,p, jy, js = tst.v(x,u,w0,ysp,N,c.dynF)
-
-    new_pesos, g, s = c.satWeights2(x, u, w0, ysp)
+    new_pesos, _, _ = c.satWeights2(x, u, w0, ysp)
     alfa = 0.0
     pesos = alfa*pesos + (1-alfa)*new_pesos
-    gg.append(g)
-    ss.append(s)
     
 print('Tempo de execução do MPC. Média: {:.3f} s, Max: {:.3f} s (index: {:d}/{:d})'.format(np.mean(tocMPC), 
                 np.max(tocMPC), tocMPC.index(np.max(tocMPC)), int(k)))
@@ -219,8 +204,7 @@ fig3.text(0.5, 0.04, 'Time', ha='center', va='center')
 nw = len(pesos)
 y = round(np.sqrt(nw)+0.5)
 x = round(nw/y+0.5)
-#leg = ['$w_{x_D}$', '','$w_{x_B}$', '','$w_{R}$', '$w_{S}$']
-leg = ['$w_{x_D}$','$w_{x_B}$','$w_{R}$', '$w_{S}$']
+leg = ['$w_{x_D}$','$w_{x_B}$','$w_{R}$', '$w_{S}$', r'$w_{x_D(N)}$', r'$w_{x_B(N)}$']
 for i in range(nw):
     plt.subplot(x, y, i+1)
     label = leg[i] #c.VJ[i].weight.name()
@@ -282,8 +266,9 @@ fig.show()
 pass
 
 import pickle
-file = 'dist_{}_{}_{}_{}_{}.dat'.format(N, np.sqrt(Vy1.gamma/N), np.sqrt(Vy2.gamma/N),
-                                        np.sqrt(Vdu1.gamma/N),np.sqrt(Vdu2.gamma/N))
+func = lambda x: np.sqrt(x/N)
+parm = [func(c.VJ[i].gamma) for i in range(len(c.VJ))]
+file = 'dist_{}_{}.dat'.format(N, parm)
 outfile = open(file,'wb')
 pickle.dump((yPlot, duPlot, uPlot, xPlot, vPlot, vJ, JPlot, pesosPlot),outfile)
 outfile.close()

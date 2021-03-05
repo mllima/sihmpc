@@ -5,6 +5,7 @@ import numpy as np
 from opom import OPOM
 import scipy as sp
 from scipy.linalg import solve_discrete_lyapunov
+from scipy.linalg import block_diag
 
 class IHMPCController(object):
     def __init__(self, sys, N, **kwargs):
@@ -82,6 +83,20 @@ class IHMPCController(object):
         # total cost
         self.J = self.Vt.V
 
+    def init_pesos(self):
+        #return initial weigths
+        pesos = [1/V.gamma for V in self.VJ]
+        pesos = np.array(pesos)
+        return pesos
+
+    def init_Qt(self):
+        Qt = []
+        for V in self.VJ:
+            if V.varType is 'y':
+                Qt = np.append(Qt,(1/V.gamma)*np.diag(V.Q))
+        self.Qt = np.diag(Qt)
+        Vt = self._terminalObj()
+        self.V[0].V = Vt
 
     def _DynamicF(self):
         #return the casadi function that represent the dynamic system
@@ -118,7 +133,7 @@ class IHMPCController(object):
             self.F = csd.Function('F', [X, U, var, Ysp], [V],
                     ['x0', 'u0', 'var','ysp'],
                     ['Value'])
-            self.Vi = []
+            self.Vi = []  #when coposed, list its components
         def lim(self, min, max):
             self.min = min
             self.max = max
@@ -128,7 +143,12 @@ class IHMPCController(object):
             self.name = name
         def setType(self, type = 'simple'):
             self.type = type
-
+        def setVarType(self, varType):
+            self.varType = varType
+        def setIndex(self, indx):
+            self.index = indx
+        def setQ(self, Q):
+            self.Q = Q
 
     def subObj(self,**kwargs):
         N = self.N
@@ -158,6 +178,9 @@ class IHMPCController(object):
             
             Vy = self.fObj(Vy, weight, X, U, np.append(dU_pred,[syN, siN]), Ysp)
             Vy.setName('Vy_'+str(inds))
+            Vy.setVarType('y')
+            Vy.setIndex(inds)
+            Vy.setQ(Q)
             if 'sat' in kwargs:
                 Vy.satLim(kwargs['sat'])
 
@@ -180,6 +203,8 @@ class IHMPCController(object):
 
             Vdu = self.fObj(Vdu, weight, X, U, np.append(dU_pred,[syN, siN]), Ysp)
             Vdu.setName('Vdu_'+str(inds))
+            Vdu.setVarType('du')
+            Vdu.setQ(Q)
             if 'sat' in kwargs:
                 Vdu.satLim(kwargs['sat'])
 
@@ -201,6 +226,8 @@ class IHMPCController(object):
             
             VyN = self.fObj(VyN, weight, X, U, np.append(dU_pred,[syN, siN]), Ysp)
             VyN.setName('VsyN_'+str(inds))
+            VyN.setVarType('syN')
+            VyN.setQ(Q)
             if 'sat' in kwargs:
                 VyN.satLim(kwargs['sat'])
 
@@ -221,6 +248,8 @@ class IHMPCController(object):
             
             ViN = self.fObj(ViN, weight, X, U, np.append(dU_pred,[syN, siN]), Ysp)
             ViN.setName('VsiN_'+str(inds))
+            ViN.setVarType('siN')
+            ViN.setQ(Q)
             if 'sat' in kwargs:
                 ViN.satLim(kwargs['sat'])
 
@@ -262,7 +291,10 @@ class IHMPCController(object):
             
             Vy_composed.setType('composed')
             Vy_composed.setName('VyC_'+str(inds))
+            Vy_composed.setVarType('y')
             Vy_composed.Vi = [Vy, VyN]
+            Vy_composed.setQ(Vy.Q)
+
             if 'sat' in kwargs:
                 Vy_composed.satLim(kwargs['sat'])
 
@@ -491,11 +523,11 @@ class IHMPCController(object):
         xiNp2 = Xknext[self.nxs+self.nxd:self.nxs+self.nxd+self.nxi]
         siNnext = xiNp2
 
-        ### Opção 3
-        ## xsNp2 = Xknext[0:self.nxs] 
-        ## syNnext = xsNp2 - np.array(ysp).reshape(self.ny,1)
+        # # Opção 3
+        # xsNp2 = Xknext[0:self.nxs] 
+        # syNnext = xsNp2 - np.array(ysp).reshape(self.ny,1)
         
-        ## Opção 2
+        # # Opção 2
         # yknext = res['ykp1']
         # syNnext = yknext - ysp
 
