@@ -48,21 +48,17 @@ c = IHMPCController(sys, N, ulb=[0,0])
 Q = 1
 R = 1
 
-Vy1 = c.subObjComposed(y=[0], Q=Q, sat=N*1.0**2)
-Vy2 = c.subObjComposed(y=[1], Q=Q, sat=N*0.5**2)
+Vy1 = c.subObjComposed(y=[0], Q=Q, sat=N*0.5**2)
+Vy2 = c.subObjComposed(y=[1], Q=Q, sat=N*2.0**2)
 
-Vdu1 = c.subObj(du=[0], Q=R, sat=N*0.15**2)
-Vdu2 = c.subObj(du=[1], Q=R, sat=N*0.15**2)
+Vdu1 = c.subObj(du=[0], Q=R, sat=N*0.3**2)
+Vdu2 = c.subObj(du=[1], Q=R, sat=N*0.3**2)
 
 Vi1N = c.subObj(siN=[0], Q=Q, addJ=False)   # addJ exclui o subobjetivo da função objetivo
 Vi2N = c.subObj(siN=[1], Q=Q, addJ=False)
 
-# configura o custo terminal
-c.set_terminal_objective()
-#init_Qt()
-
-# pesos - inicialização dos pessos (na ordem de criação dos subobjetivos)
-pesos = c.init_pesos()
+# recalcula os pesos do custo terminal
+c.init_Qt
 
 # %%% Closed loop
 
@@ -70,7 +66,7 @@ u = [1.95, 1.71]  	                            # controle anterior [Reflux, Stea
 x = np.append([96, 0.5], np.zeros(sys.nx-2)) 	# Estado inicial 
 ysp = [96, 0.5]                                 # Concentrações de saída [xD, xB] <mol%>
 
-tEnd = 200     	    # Tempo de simulação
+tEnd = 800     	    # Tempo de simulação
 
 w0 = []
 lam_w0 = []
@@ -89,16 +85,15 @@ tocMPC = []
 for k in np.arange(0, tEnd/Ts):
 
     t1 = time.time()
-    pesosPlot += [pesos]
-        
+      
     # to test a change in the set-point    
-    if k > 10/Ts: 
+    if k > 50/Ts: 
         ysp = [96, 1]
 
     if k > (tEnd/2)/Ts: 
         ysp = [95.5, 1]
 
-    sol = c.mpc(x0=x, ySP=ysp, w0=w0, u0=u, pesos=pesos, lam_w0=lam_w0, lam_g0=lam_g0, ViN_ant=[])
+    sol = c.mpc(x0=x, ySP=ysp, w0=w0, u0=u, lam_w0=lam_w0, lam_g0=lam_g0, ViN_ant=[])
     
     t2 = time.time()
     tocMPC += [t2-t1]
@@ -136,10 +131,9 @@ for k in np.arange(0, tEnd/Ts):
 
     w0 = c.warmStart(sol, ysp)
 
-    new_pesos, _, _ = c.satWeights2(x, u, w0, ysp)
-    alfa = 0.0
-    pesos = alfa*pesos + (1-alfa)*new_pesos
-    
+    pesos = c.satWeights(x, u, w0, ysp) # teóricos
+    pesosPlot.append(pesos)
+
 print('Tempo de execução do MPC. Média: {:.3f} s, Max: {:.3f} s (index: {:d}/{:d})'.format(np.mean(tocMPC), 
                 np.max(tocMPC), tocMPC.index(np.max(tocMPC)), int(k)))
 
@@ -199,20 +193,20 @@ for i in range(c.nx):
     plt.grid()
     plt.legend()
 
-fig3 = plt.figure(3)
-fig3.suptitle("Weights")
-fig3.text(0.5, 0.04, 'Time', ha='center', va='center')
-nw = len(pesos)
-y = round(np.sqrt(nw)+0.5)
-x = round(nw/y+0.5)
-leg = ['$w_{x_D}$','$w_{x_B}$','$w_{R}$', '$w_{S}$', r'$w_{x_D(N)}$', r'$w_{x_B(N)}$']
-for i in range(nw):
-    plt.subplot(x, y, i+1)
-    label = leg[i] #c.VJ[i].weight.name()
-    plt.step(t, pesosPlot[i], label=label)
-    plt.legend(loc=0, fontsize='large')
-    plt.grid()
-    plt.legend()
+# fig3 = plt.figure(3)
+# fig3.suptitle("Weights")
+# fig3.text(0.5, 0.04, 'Time', ha='center', va='center')
+# nw = len(pesos)
+# y = round(np.sqrt(nw)+0.5)
+# x = round(nw/y+0.5)
+# leg = ['$w_{x_D}$','$w_{x_B}$','$w_{R}$', '$w_{S}$', r'$w_{x_D(N)}$', r'$w_{x_B(N)}$']
+# for i in range(nw):
+#     plt.subplot(x, y, i+1)
+#     label = leg[i] #c.VJ[i].weight.name()
+#     plt.step(t, pesosPlot[i], label=label)
+#     plt.legend(loc=0, fontsize='large')
+#     plt.grid()
+#     plt.legend()
 
 fig4 = plt.figure(4)
 fig4.suptitle("Total Cost")
@@ -230,39 +224,39 @@ for i in range(l):
     plt.step(t,vPlot[i], label = label)
     plt.legend()
 
-fig6 = plt.figure(6)
-fig6.suptitle("Weighted Local Costs")
-l = len(c.VJ)
-y = round(np.sqrt(l)+0.5)
-x = round(l/y+0.5)
-for i in range(l):
-    plt.subplot(x,y,i+1)
-    label = c.VJ[i].weight.name() + '*' + c.VJ[i].name 
-    plt.step(t,pesosPlot[i]*vJ[i], label = label)
-    plt.legend()
+# fig6 = plt.figure(6)
+# fig6.suptitle("Weighted Local Costs")
+# l = len(c.VJ)
+# y = round(np.sqrt(l)+0.5)
+# x = round(l/y+0.5)
+# for i in range(l):
+#     plt.subplot(x,y,i+1)
+#     label = c.VJ[i].weight.name() + '*' + c.VJ[i].name 
+#     plt.step(t,pesosPlot[i]*vJ[i], label = label)
+#     plt.legend()
 
-fig7 =plt.figure(7)
-fig7.suptitle("Normalized Weights")
-nw = len(pesos)
-y = round(np.sqrt(nw)+0.5)
-x = round(nw/y+0.5)
+# fig7 =plt.figure(7)
+# fig7.suptitle("Normalized Weights")
+# nw = len(pesos)
+# y = round(np.sqrt(nw)+0.5)
+# x = round(nw/y+0.5)
 
-for i in range(nw):
-    #plt.subplot(x,y,i+1)
-    label = 'n' + c.VJ[i].weight.name() 
-    plt.step(t,pesosPlot[i]*c.VJ[i].gamma, label = label)
-    plt.legend()
+# for i in range(nw):
+#     #plt.subplot(x,y,i+1)
+#     label = 'n' + c.VJ[i].weight.name() 
+#     plt.step(t,pesosPlot[i]*c.VJ[i].gamma, label = label)
+#     plt.legend()
 
 plt.show()
 
-import plotly.graph_objects as go
-fig = go.Figure()
-for i in range(nw):
-    label = 'n' + c.VJ[i].weight.name() 
-    fig.add_trace(go.Scatter(x=t, y=pesosPlot[i]*c.VJ[i].gamma,
-                    mode='lines',
-                    name=label))
-fig.show()
+# import plotly.graph_objects as go
+# fig = go.Figure()
+# for i in range(nw):
+#     label = 'n' + c.VJ[i].weight.name() 
+#     fig.add_trace(go.Scatter(x=t, y=pesosPlot[i]*c.VJ[i].gamma,
+#                     mode='lines',
+#                     name=label))
+# fig.show()
 
 pass
 
