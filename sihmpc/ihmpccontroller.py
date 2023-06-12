@@ -72,7 +72,7 @@ class IHMPCController(object):
 
         # lists
         #self.V = [self.Vt]                       # list of sub-objetives
-        self.V = []                       # list of sub-objetives
+        self.V = []                              # list of sub-objetives
         self.VJ = []                             # list of components of J with variable w
         self.F_ViN = []                          # list of ViN's functions
         self.Pesos = []                          # list of weights
@@ -133,7 +133,7 @@ class IHMPCController(object):
             self.max = np.inf
             self.gamma = np.inf
             self.weight = w
-            var = csd.vertcat(*var)     # var: decision variables
+            #var = csd.vertcat(*var)     # var: decision variables
             self.F = csd.Function('F', [X, U, var, Ysp], [V],
                     ['x0', 'u0', 'var','ysp'],
                     ['Value'])
@@ -180,7 +180,8 @@ class IHMPCController(object):
                     Vy += (Y_pred[k][ind] - Ysp[ind] - syN[ind] - (k+1-N)*Ts*siN[ind])**2 * np.diag(Q)[j]
             weight = csd.MX.sym('w_y' + str(inds))  # peso do sub_objetivo
             
-            Vy = self.fObj(Vy, weight, X, U, np.append(dU_pred,[syN, siN]), Ysp)
+            #Vy = self.fObj(Vy, weight, X, U, np.append(dU_pred,[syN, siN]), Ysp)
+            Vy = self.fObj(Vy, weight, X, U, csd.vertcat(*dU_pred,syN, siN), Ysp)
             Vy.setName('Vy_'+str(inds))
             Vy.setVarType('y')
             Vy.setIndex(inds)
@@ -205,7 +206,8 @@ class IHMPCController(object):
                     Vdu += dU_pred[k][ind]**2 * np.diag(Q)[j]
             weight = csd.MX.sym('w_du' + str(inds))  # peso do sub_objetivo
 
-            Vdu = self.fObj(Vdu, weight, X, U, np.append(dU_pred,[syN, siN]), Ysp)
+            #Vdu = self.fObj(Vdu, weight, X, U, np.append(dU_pred,[syN, siN]), Ysp)
+            Vdu = self.fObj(Vdu, weight, X, U, csd.vertcat(*dU_pred,syN, siN), Ysp)
             Vdu.setName('Vdu_'+str(inds))
             Vdu.setVarType('du')
             Vdu.setQ(Q)
@@ -228,7 +230,8 @@ class IHMPCController(object):
                 VyN += syN[ind]**2 * np.diag(Q)[j]
             weight = csd.MX.sym('w_syN' + str(inds))  # peso do sub_objetivo
             
-            VyN = self.fObj(VyN, weight, X, U, np.append(dU_pred,[syN, siN]), Ysp)
+            #VyN = self.fObj(VyN, weight, X, U, np.append(dU_pred,[syN, siN]), Ysp)
+            VyN = self.fObj(VyN, weight, X, U, csd.vertcat(*dU_pred,syN, siN), Ysp)
             VyN.setName('VsyN_'+str(inds))
             VyN.setVarType('syN')
             VyN.setQ(Q)
@@ -250,7 +253,8 @@ class IHMPCController(object):
                 ViN += siN[ind]**2 * np.diag(Q)[j]            
             weight = csd.MX.sym('w_siN' + str(inds))  # peso do sub_objetivo
             
-            ViN = self.fObj(ViN, weight, X, U, np.append(dU_pred,[syN, siN]), Ysp)
+            #ViN = self.fObj(ViN, weight, X, U, np.append(dU_pred,[syN, siN]), Ysp)
+            ViN = self.fObj(ViN, weight, X, U, csd.vertcat(*dU_pred,syN, siN), Ysp)
             ViN.setName('VsiN_'+str(inds))
             ViN.setVarType('siN')
             ViN.setQ(Q)
@@ -286,7 +290,8 @@ class IHMPCController(object):
             VyN = self.subObj(syN=inds, Q=kwargs['Q'], addJ=False)
             
             weight = csd.MX.sym('w_yC' + str(inds))  # peso do sub_objetivo
-            Vy_composed = self.fObj(Vy.V + self.N*VyN.V, weight, X, U, np.append(dU_pred,[syN, siN]), Ysp)
+            #Vy_composed = self.fObj(Vy.V + self.N*VyN.V, weight, X, U, np.append(dU_pred,[syN, siN]), Ysp)
+            Vy_composed = self.fObj(Vy.V + self.N*VyN.V, weight, X, U, csd.vertcat(*dU_pred,syN, siN), Ysp)
             
             if 'addJ' not in kwargs or kwargs['addJ'] != False:
                 self.Pesos.append(weight)
@@ -312,12 +317,13 @@ class IHMPCController(object):
             if V.varType is 'y':
                 Qt = np.append(Qt,(1/V.gamma)*np.diag(V.Q))
         self.Qt = np.diag(Qt)
-        self.Qt = np.eye(self.ny)
+        #self.Qt = np.eye(self.ny)
 
         # terminal cost
         Vt = self.fObj(self._terminalObj(),1, 
                             self.X, self.U, 
-                            np.append(self.dU_pred,[self.syN, self.siN]), 
+                            #np.append(self.dU_pred,[self.syN, self.siN]), 
+                            csd.vertcat(*self.dU_pred,self.syN, self.siN),
                             self.Ysp, 'Vt')
 
         self.V.append(Vt)

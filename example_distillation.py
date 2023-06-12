@@ -1,9 +1,6 @@
 # -*- coding: utf-8 -*-
 # distillation example - Wood & Berry
 
-from opom import OPOM, TransferFunction
-from sihmpc import IHMPCController
-
 import time
 import numpy as np
 import matplotlib.pyplot as plt
@@ -11,9 +8,10 @@ import matplotlib.gridspec as gridspec
 import control as ctl
 import casadi as csd
 
-# %% Modelo OPOM
+from opom import OPOM, TransferFunction
+from sihmpc import IHMPCController
 
-##### Modelo
+# %% Modelo 
 
 num11 = [12.8]
 den11 = [16.7, 1]
@@ -59,7 +57,6 @@ Vi2N = c.subObj(siN=[1], Q=Q, addJ=False)
 
 # configura o custo terminal
 c.set_terminal_objective()
-#init_Qt()
 
 # pesos - inicialização dos pessos (na ordem de criação dos subobjetivos)
 pesos = c.init_pesos()
@@ -182,8 +179,8 @@ plt.legend(['R', 'S'])
 fig2 = plt.figure(2)
 fig2.suptitle("OPOM Variables")
 fig2.text(0.5, 0.04, 'Time', ha='center', va='center')
-y = round(c.nx/4+0.5)
-x = round(c.nx/y+0.5)
+y = int(round(c.nx/4+0.5))
+x = int(round(c.nx/y+0.5))
 for i in range(c.nx):
     plt.subplot(x, y, i+1)
     if i<c.nxs:
@@ -203,8 +200,8 @@ fig3 = plt.figure(3)
 fig3.suptitle("Weights")
 fig3.text(0.5, 0.04, 'Time', ha='center', va='center')
 nw = len(pesos)
-y = round(np.sqrt(nw)+0.5)
-x = round(nw/y+0.5)
+y = int(round(np.sqrt(nw)+0.5))
+x = int(round(nw/y+0.5))
 leg = ['$w_{x_D}$','$w_{x_B}$','$w_{R}$', '$w_{S}$', r'$w_{x_D(N)}$', r'$w_{x_B(N)}$']
 for i in range(nw):
     plt.subplot(x, y, i+1)
@@ -222,8 +219,8 @@ plt.plot(t,JPlot)
 fig5 = plt.figure(5)
 fig5.suptitle("Local Costs")
 l = len(c.V)
-y = round(np.sqrt(l)+0.5)
-x = round(l/y+0.5)
+y = int(round(np.sqrt(l)+0.5))
+x = int(round(l/y+0.5))
 for i in range(l):
     plt.subplot(x,y,i+1)
     label = c.V[i].name
@@ -233,8 +230,8 @@ for i in range(l):
 fig6 = plt.figure(6)
 fig6.suptitle("Weighted Local Costs")
 l = len(c.VJ)
-y = round(np.sqrt(l)+0.5)
-x = round(l/y+0.5)
+y = int(round(np.sqrt(l)+0.5))
+x = int(round(l/y+0.5))
 for i in range(l):
     plt.subplot(x,y,i+1)
     label = c.VJ[i].weight.name() + '*' + c.VJ[i].name 
@@ -244,8 +241,8 @@ for i in range(l):
 fig7 =plt.figure(7)
 fig7.suptitle("Normalized Weights")
 nw = len(pesos)
-y = round(np.sqrt(nw)+0.5)
-x = round(nw/y+0.5)
+y = int(round(np.sqrt(nw)+0.5))
+x = int(round(nw/y+0.5))
 
 for i in range(nw):
     #plt.subplot(x,y,i+1)
