@@ -62,45 +62,26 @@ class IHMPCController(object):
         self.dynF = self._DynamicF()
         self.X_pred, self.Y_pred, self.U_pred, self.dU_pred = self.prediction()
 
-        # self.Qt = kwargs.get('Qt', np.eye(sys.ny))       # Matriz de peso dos estados
-        # self.Q_bar = []
-
-        # self.Vt = self.fObj(self._terminalObj(),1, 
-        #                     self.X, self.U, 
-        #                     np.append(self.dU_pred,[self.syN, self.siN]), 
-        #                     self.Ysp, 'Vt')
-
-        # lists
-        #self.V = [self.Vt]                       # list of sub-objetives
-        self.V = []                              # list of sub-objetives
-        self.VJ = []                             # list of components of J with variable w
+        # lists of casasi functions and variables
+        self.V = []                              # list of all sub-objetives
+        self.VJ = []                             # list of subobjectives that compose the objective function J (components of J with variable w)
         self.F_ViN = []                          # list of ViN's functions
         self.Pesos = []                          # list of weights
         self.ViN_ant = []                        # list of casadi variables that receives ViNant
-        self.ViNant = []                         # list of the Vi value at the least step
+
 
         # total cost
         self.J = 0
-        #self.J += self.Vt.V
+
+        # internal values
+        self._s = []                            # list of violation factor of the satisficing set, at instant k. 
+        self.ViNant = []                        # list of the Vi value at the least step
 
     def init_pesos(self):
         #return initial weigths
         pesos = [1/V.gamma for V in self.VJ]
-        pesos = np.array(pesos)
-        return pesos
-
-
-
-    # def init_Qt(self):
-    #     Qt = []
-    #     for V in self.VJ:
-    #         if V.varType is 'y':
-    #             Qt = np.append(Qt,(1/V.gamma)*np.diag(V.Q))
-    #     self.Qt = np.diag(Qt)
-    #     Vterm = self._terminalObj()
-    #     self.Vt.V = Vterm
-    #     self.V[0].V = Vterm
-    #     self.J += self.Vt.V
+        self.pesos = np.array(pesos)
+        return self.pesos
 
     def _DynamicF(self):
         #return the casadi function that represent the dynamic system
@@ -328,20 +309,24 @@ class IHMPCController(object):
 
         self.V.append(Vt)
         self.J += Vt.V
-
-    def _terminalObj(self):
+      
+    def _terminalObj(self):   
         
         # estado terminal
         XN = self.X_pred[-1]  # terminal state
         XdN = XN[self.nxs:self.nxs+self.nxd]
         Vt = 0
- 
+
+        Qt = self.Qt
+        Psi = self.sys.Psi
+        F = self.sys.F
+
         # Adição do custo terminal
         # Q terminal
-        Q_lyap = self.sys.F.T@self.sys.Psi.T@self.Qt@self.sys.Psi@self.sys.F
-        Q_bar = solve_discrete_lyapunov(self.sys.F.T, Q_lyap) #, method='bilinear')
-        Vt = XdN.T@Q_bar@XdN
-        #Vt = csd.dot(XdN**2, csd.diag(Q_bar))
+        Q_lyap = F.T @ Psi.T @ Qt @Psi @ F
+        Q_bar = solve_discrete_lyapunov(F.T, Q_lyap) #, method='bilinear')
+        Vt = XdN.T @ Q_bar @ XdN
+
         self.Q_bar = Q_bar
         return Vt
                     
@@ -359,7 +344,6 @@ class IHMPCController(object):
 
         for k in range(0, N):
             dU_k = csd.MX.sym('dU_' + str(k), self.nu)  # Variável para o controle em k
-            #self.dUk.append(dU_k)
         
             # Adiciona a nova dinâmica
             res = self.dynF(x0=Xkp1, u0=Ukp1, du0=dU_k)
@@ -456,8 +440,8 @@ class IHMPCController(object):
         l = len(self.V)
         for i in range(l):
             g += [self.V[i].V]
-            lbg += [self.V[i].min]  # in the case of ViN, min = ViN_ant
-            ubg += [self.V[i].max]
+            lbg += [self.V[i].min]  
+            ubg += [self.V[i].max]   # in the case of ViN, max = ViN_ant
 
         g = csd.vertcat(*g)
         w = csd.vertcat(*w)
@@ -600,8 +584,10 @@ class IHMPCController(object):
           pesos = np.append(pesos, w)
         return pesos
 
-    def satWeights2(self, x, u, w_start, ysp):
+    def satWeights2(self, x, u, w_start, ysp, alfa=0):
         # custos seguintes estimados
+        # alfa = convex combination of new_pesos and actual pesos
+        # inicializa s 
         l = len(self.VJ)
         s = np.zeros(l)
         gamma = np.zeros(l)
@@ -609,8 +595,10 @@ class IHMPCController(object):
         for i in range(l):
           Vnext[i] = self.VJ[i].F(x, u, w_start, ysp)
           gamma[i] = self.VJ[i].gamma
-          s[i] = Vnext[i]/gamma[i] + 1e-3 # fator de violaçao
+          s[i] = Vnext[i]/gamma[i] # fator de violaçao
         smax = max(s)
-        gamma = np.maximum(gamma, gamma * smax) #não menor que o 
-        pesos = 1/(gamma - Vnext)
-        return pesos, gamma, s
+        gamma = np.maximum(gamma, gamma * smax + 1e-6) #amplia o gama se smax >= 1
+        new_pesos = 1/(gamma - Vnext)
+        self.pesos = alfa*self.pesos + (1-alfa)*new_pesos
+        self._s = s
+        return self.pesos, gamma

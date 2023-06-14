@@ -133,9 +133,7 @@ for k in np.arange(0, tEnd/Ts):
 
     w0 = c.warmStart(sol, ysp)
 
-    new_pesos, _, _ = c.satWeights2(x, u, w0, ysp)
-    alfa = 0.0
-    pesos = alfa*pesos + (1-alfa)*new_pesos
+    pesos, _= c.satWeights2(x, u, w0, ysp)
     
 print('Tempo de execução do MPC. Média: {:.3f} s, Max: {:.3f} s (index: {:d}/{:d})'.format(np.mean(tocMPC), 
                 np.max(tocMPC), tocMPC.index(np.max(tocMPC)), int(k)))
