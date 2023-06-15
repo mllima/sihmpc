@@ -58,8 +58,9 @@ Vi2N = c.subObj(siN=[1], Q=Q, addJ=False)
 # configura o custo terminal
 c.set_terminal_objective()
 
-# pesos - inicialização dos pessos (na ordem de criação dos subobjetivos)
-pesos = c.init_pesos()
+# pesos - inicialização dos pessos (na ordem de criação dos subobjetivos). 
+# Se vazio (pesos=[]), o controlador os inicia com valores da teoria. Internamente chama o método init_pesos()
+pesos = [] #c.init_pesos()
 
 # %%% Closed loop
 
@@ -70,23 +71,16 @@ ysp = [96, 0.5]                                 # Concentrações de saída [xD,
 tEnd = 200     	    # Tempo de simulação
 
 w0 = []
-lam_w0 = []
-lam_g0 = []
 
-JPlot = []
 duPlot = []
 yPlot = [(sys.C@x).reshape(c.ny,1)]
 uPlot = []
 xPlot = []
-pesosPlot = []
-vPlot = []
-vJ = []
 
 tocMPC = []   
 for k in np.arange(0, tEnd/Ts):
 
     t1 = time.time()
-    pesosPlot += [pesos]
         
     # to test a change in the set-point    
     if k > 10/Ts: 
@@ -95,34 +89,17 @@ for k in np.arange(0, tEnd/Ts):
     if k > (tEnd/2)/Ts: 
         ysp = [95.5, 1]
 
-    sol = c.mpc(x0=x, ySP=ysp, w0=w0, u0=u, pesos=pesos, lam_w0=lam_w0, lam_g0=lam_g0, ViN_ant=[])
+    sol = c.mpc(x0=x, ySP=ysp, w0=w0, u0=u, pesos=pesos) 
     
     t2 = time.time()
     tocMPC += [t2-t1]
 
+    # resultados do controlador
     w0 = sol['w_opt'][:]
-    lam_w0 = sol['lam_w']
-    lam_g0 = sol['lam_g']
-    
-    du = sol['du_opt'][:, 0].full()
-
-    J = float(sol['J'])
-    JPlot.append(J)
-
-    #all sub-objectives values
-    v=[]
-    for i in range(len(c.V)):
-        v.append(float(c.V[i].F(x, u, w0, ysp)))
-    vPlot.append(v)
-
-    #sub-objectives that are in the objective function
-    v=[]
-    for i in range(len(c.VJ)):
-        v.append(float(c.VJ[i].F(x, u, w0, ysp)))
-    vJ.append(v)
-
+    du = c.du                   # ou sol['du_opt'][:, 0].full()
+   
     # ## Simula o sistema ###
-    res = c.dynF(x0=x, du0=du, u0=u)
+    res = c.dynF(x0=x, u0=u, du0=du)
     x = res['xkp1'].full()
     u = res['ukp1'].full()
     y = res['ykp1'].full()
@@ -142,18 +119,22 @@ print('Tempo de execução do MPC. Média: {:.3f} s, Max: {:.3f} s (index: {:d}/
 
 t = np.arange(Ts, tEnd+Ts, Ts)
 
+c.plotPesos(t)
+c.plotPesosNormalizados(t)
+c.plotJ(t)
+c.plotJi(t)
+c.plotV(t)
+
+
 yPlot = np.hstack(yPlot)
 duPlot = np.hstack(duPlot)
 uPlot = np.hstack(uPlot)
 xPlot = np.hstack(xPlot)
-vPlot = np.vstack(vPlot).T
-vJ = np.vstack(vJ).T
-JPlot = np.hstack(JPlot)
-pesosPlot = np.array(pesosPlot).T
 
-fig1 = plt.figure(1)
-fig1.suptitle("Output and Control Signals")
-fig1.text(0.5, 0.04, 'Time', ha='center', va='center')
+
+fig = plt.figure()
+fig.suptitle("Output and Control Signals")
+fig.text(0.5, 0.04, 'Time', ha='center', va='center')
 grid = plt.GridSpec(2, 3)  # 2 rows 3 cols
 
 plt.subplot(grid[0,0])
@@ -174,9 +155,9 @@ plt.step(t, uPlot.T)
 plt.legend(loc=0, fontsize='large')
 plt.legend(['R', 'S'])
 
-fig2 = plt.figure(2)
-fig2.suptitle("OPOM Variables")
-fig2.text(0.5, 0.04, 'Time', ha='center', va='center')
+fig = plt.figure()
+fig.suptitle("OPOM Variables")
+fig.text(0.5, 0.04, 'Time', ha='center', va='center')
 y = int(round(c.nx/4+0.5))
 x = int(round(c.nx/y+0.5))
 for i in range(c.nx):
@@ -194,77 +175,22 @@ for i in range(c.nx):
     plt.grid()
     plt.legend()
 
-fig3 = plt.figure(3)
-fig3.suptitle("Weights")
-fig3.text(0.5, 0.04, 'Time', ha='center', va='center')
-nw = len(pesos)
-y = int(round(np.sqrt(nw)+0.5))
-x = int(round(nw/y+0.5))
-leg = ['$w_{x_D}$','$w_{x_B}$','$w_{R}$', '$w_{S}$', r'$w_{x_D(N)}$', r'$w_{x_B(N)}$']
-for i in range(nw):
-    plt.subplot(x, y, i+1)
-    label = leg[i] #c.VJ[i].weight.name()
-    plt.step(t, pesosPlot[i], label=label)
-    plt.legend(loc=0, fontsize='large')
-    plt.grid()
-    plt.legend()
-
-fig4 = plt.figure(4)
-fig4.suptitle("Total Cost")
-fig4.text(0.5, 0.04, 'Time', ha='center', va='center')
-plt.plot(t,JPlot)
-
-fig5 = plt.figure(5)
-fig5.suptitle("Local Costs")
-l = len(c.V)
-y = int(round(np.sqrt(l)+0.5))
-x = int(round(l/y+0.5))
-for i in range(l):
-    plt.subplot(x,y,i+1)
-    label = c.V[i].name
-    plt.step(t,vPlot[i], label = label)
-    plt.legend()
-
-fig6 = plt.figure(6)
-fig6.suptitle("Weighted Local Costs")
-l = len(c.VJ)
-y = int(round(np.sqrt(l)+0.5))
-x = int(round(l/y+0.5))
-for i in range(l):
-    plt.subplot(x,y,i+1)
-    label = c.VJ[i].weight.name() + '*' + c.VJ[i].name 
-    plt.step(t,pesosPlot[i]*vJ[i], label = label)
-    plt.legend()
-
-fig7 =plt.figure(7)
-fig7.suptitle("Normalized Weights")
-nw = len(pesos)
-y = int(round(np.sqrt(nw)+0.5))
-x = int(round(nw/y+0.5))
-
-for i in range(nw):
-    #plt.subplot(x,y,i+1)
-    label = 'n' + c.VJ[i].weight.name() 
-    plt.step(t,pesosPlot[i]*c.VJ[i].gamma, label = label)
-    plt.legend()
-
-plt.show()
-
 import plotly.graph_objects as go
 fig = go.Figure()
+nw = len(c.VJ)
 for i in range(nw):
     label = 'n' + c.VJ[i].weight.name() 
-    fig.add_trace(go.Scatter(x=t, y=pesosPlot[i]*c.VJ[i].gamma,
+    fig.add_trace(go.Scatter(x=t, y=np.array(c.VJ[i].peso_hist)*c.VJ[i].gamma,
                     mode='lines',
                     name=label))
 fig.show()
 
 pass
 
-import pickle
-func = lambda x: np.sqrt(x/N)
-parm = [func(c.VJ[i].gamma) for i in range(len(c.VJ))]
-file = 'dist_{}_{}.dat'.format(N, parm)
-outfile = open(file,'wb')
-pickle.dump((yPlot, duPlot, uPlot, xPlot, vPlot, vJ, JPlot, pesosPlot),outfile)
-outfile.close()
+# import pickle
+# func = lambda x: np.sqrt(x/N)
+# parm = [func(c.VJ[i].gamma) for i in range(len(c.VJ))]
+# file = 'dist_{}_{}.dat'.format(N, parm)
+# outfile = open(file,'wb')
+# pickle.dump((yPlot, duPlot, uPlot, xPlot, vPlot, vJ, JPlot, pesosPlot),outfile)
+# outfile.close()

@@ -6,6 +6,7 @@ from opom import OPOM
 import scipy as sp
 from scipy.linalg import solve_discrete_lyapunov
 from scipy.linalg import block_diag
+import matplotlib.pyplot as plt
 
 class IHMPCController(object):
     def __init__(self, sys, N, **kwargs):
@@ -71,16 +72,22 @@ class IHMPCController(object):
 
 
         # total cost
-        self.J = 0
+        self.J = 0                              # casadi function J. Começa em zero, mas vai crescendo com a inclusão de outros custos
 
-        # internal values
+        # controller values
         self._s = []                            # list of violation factor of the satisficing set, at instant k. 
-        self.ViNant = []                        # list of the Vi value at the least step
+        self.ViNant = []                        # list of the Vi (integral mode cost) value at the least step
+        self.pesos = []                         # valores atuais dos pesos da função objetivo J
+        self.j_value = 0                        # valor da função objetivo atual
+        self.du = np.zeros((self.nu,1))         # valores decididos pelo controlador
+
+        # for ploting
+        self.j_hist = []                        # histórico dos valores da função objetivo durante a simulação
 
     def init_pesos(self):
         #return initial weigths
-        pesos = [1/V.gamma for V in self.VJ]
-        self.pesos = np.array(pesos)
+        pesos = [V.peso for V in self.VJ]
+        self.pesos = np.array(pesos)            #variável que quarda internamente o valor atual dos pesos
         return self.pesos
 
     def _DynamicF(self):
@@ -109,16 +116,22 @@ class IHMPCController(object):
     class fObj:
         def __init__(self,V,w, X, U, var, Ysp, name=''):
             self.name = name
-            self.V = V
+            self.V = V                                      # objective function expression
             self.min = 0
             self.max = np.inf
             self.gamma = np.inf
-            self.weight = w
-            #var = csd.vertcat(*var)     # var: decision variables
+            self.weight = w                                 # simbolic variable
             self.F = csd.Function('F', [X, U, var, Ysp], [V],
                     ['x0', 'u0', 'var','ysp'],
-                    ['Value'])
-            self.Vi = []  #when coposed, list its components
+                    ['Value'])                              # value of the fObjective
+            self.Vi = []                                    # when coposed, list its components
+            self.peso = 0                                   # peso na função objetivo (atual)
+            
+            # for ploting
+            self.v_hist = []
+            self.peso_hist = []                             # histórico do peso na função objetivo durante a simulação
+
+        #functions    
         def lim(self, min, max):
             self.min = min
             self.max = max
@@ -161,7 +174,6 @@ class IHMPCController(object):
                     Vy += (Y_pred[k][ind] - Ysp[ind] - syN[ind] - (k+1-N)*Ts*siN[ind])**2 * np.diag(Q)[j]
             weight = csd.MX.sym('w_y' + str(inds))  # peso do sub_objetivo
             
-            #Vy = self.fObj(Vy, weight, X, U, np.append(dU_pred,[syN, siN]), Ysp)
             Vy = self.fObj(Vy, weight, X, U, csd.vertcat(*dU_pred,syN, siN), Ysp)
             Vy.setName('Vy_'+str(inds))
             Vy.setVarType('y')
@@ -169,6 +181,7 @@ class IHMPCController(object):
             Vy.setQ(Q)
             if 'sat' in kwargs:
                 Vy.satLim(kwargs['sat'])
+                Vy.peso = 1/kwargs['sat']              # ajusta o peso inicial
 
             self.V.append(Vy)
             if 'addJ' not in kwargs or kwargs['addJ'] != False:
@@ -187,13 +200,13 @@ class IHMPCController(object):
                     Vdu += dU_pred[k][ind]**2 * np.diag(Q)[j]
             weight = csd.MX.sym('w_du' + str(inds))  # peso do sub_objetivo
 
-            #Vdu = self.fObj(Vdu, weight, X, U, np.append(dU_pred,[syN, siN]), Ysp)
             Vdu = self.fObj(Vdu, weight, X, U, csd.vertcat(*dU_pred,syN, siN), Ysp)
             Vdu.setName('Vdu_'+str(inds))
             Vdu.setVarType('du')
             Vdu.setQ(Q)
             if 'sat' in kwargs:
                 Vdu.satLim(kwargs['sat'])
+                Vdu.peso = 1/kwargs['sat']              # ajusta o peso inicial
 
             self.V.append(Vdu)
             if 'addJ' not in kwargs or kwargs['addJ'] != False:
@@ -211,13 +224,13 @@ class IHMPCController(object):
                 VyN += syN[ind]**2 * np.diag(Q)[j]
             weight = csd.MX.sym('w_syN' + str(inds))  # peso do sub_objetivo
             
-            #VyN = self.fObj(VyN, weight, X, U, np.append(dU_pred,[syN, siN]), Ysp)
             VyN = self.fObj(VyN, weight, X, U, csd.vertcat(*dU_pred,syN, siN), Ysp)
             VyN.setName('VsyN_'+str(inds))
             VyN.setVarType('syN')
             VyN.setQ(Q)
             if 'sat' in kwargs:
                 VyN.satLim(kwargs['sat'])
+                VyN.peso = 1/kwargs['sat']              # ajusta o peso inicial
 
             self.V.append(VyN)
             if 'addJ' not in kwargs or kwargs['addJ'] != False:
@@ -234,13 +247,13 @@ class IHMPCController(object):
                 ViN += siN[ind]**2 * np.diag(Q)[j]            
             weight = csd.MX.sym('w_siN' + str(inds))  # peso do sub_objetivo
             
-            #ViN = self.fObj(ViN, weight, X, U, np.append(dU_pred,[syN, siN]), Ysp)
             ViN = self.fObj(ViN, weight, X, U, csd.vertcat(*dU_pred,syN, siN), Ysp)
             ViN.setName('VsiN_'+str(inds))
             ViN.setVarType('siN')
             ViN.setQ(Q)
             if 'sat' in kwargs:
                 ViN.satLim(kwargs['sat'])
+                ViN.peso = 1/kwargs['sat']              # ajusta o peso inicial
 
             self.V.append(ViN)
             self.F_ViN.append(ViN.F)
@@ -271,7 +284,6 @@ class IHMPCController(object):
             VyN = self.subObj(syN=inds, Q=kwargs['Q'], addJ=False)
             
             weight = csd.MX.sym('w_yC' + str(inds))  # peso do sub_objetivo
-            #Vy_composed = self.fObj(Vy.V + self.N*VyN.V, weight, X, U, np.append(dU_pred,[syN, siN]), Ysp)
             Vy_composed = self.fObj(Vy.V + self.N*VyN.V, weight, X, U, csd.vertcat(*dU_pred,syN, siN), Ysp)
             
             if 'addJ' not in kwargs or kwargs['addJ'] != False:
@@ -287,6 +299,7 @@ class IHMPCController(object):
 
             if 'sat' in kwargs:
                 Vy_composed.satLim(kwargs['sat'])
+                Vy_composed.peso = 1/kwargs['sat']              # ajusta o peso inicial
 
             self.V.append(Vy_composed)
             return Vy_composed
@@ -303,7 +316,6 @@ class IHMPCController(object):
         # terminal cost
         Vt = self.fObj(self._terminalObj(),1, 
                             self.X, self.U, 
-                            #np.append(self.dU_pred,[self.syN, self.siN]), 
                             csd.vertcat(*self.dU_pred,self.syN, self.siN),
                             self.Ysp, 'Vt')
 
@@ -552,10 +564,18 @@ class IHMPCController(object):
         return w_start
 
 
-    def mpc(self, x0, ySP, w0, u0, pesos, lam_w0, lam_g0, ViN_ant=None):
+    def mpc(self, x0, ySP, w0, u0, pesos, lam_w0=[], lam_g0=[], ViN_ant=None):
+
         MPC = self._MPC()
+
         if ViN_ant == None:
             ViN_ant = self.ViNant  
+
+        # inicializa os pesos se vazio
+        l = len(self.VJ)            
+        if len(pesos) != l:
+            pesos = self.init_pesos()
+
         sol = MPC(x0=x0, ySP=ySP, w0=w0, u0=u0, pesos=pesos, lam_w0=lam_w0, lam_g0=lam_g0, ViN_ant=ViN_ant)
                 
         l = len(self.F_ViN)
@@ -568,6 +588,18 @@ class IHMPCController(object):
         # xiN = xN[self.nxs+self.nxd:self.nxs+self.nxd+self.nxi]
         # du = sol['du_opt'][:, 0].full()
         # self.ViNant = (xiN - self.sys.Di@du)**2
+
+        w0 = sol['w_opt'][:]
+
+        # guarda o histórico da simulação
+        self.du = sol['du_opt'][:, 0].full()
+        self.j_value = float(sol['J'])
+        self.j_hist.append(self.j_value)
+        for i in range(len(self.V)):
+            self.V[i].v_hist.append(float(self.V[i].F(x0, u0, w0, ySP)))
+        for i in range(len(self.VJ)):
+            self.VJ[i].peso_hist.append(pesos[i])
+        
 
         return sol
 
@@ -602,3 +634,68 @@ class IHMPCController(object):
         self.pesos = alfa*self.pesos + (1-alfa)*new_pesos
         self._s = s
         return self.pesos, gamma
+
+    def plotPesos(self, t):
+        fig = plt.figure()
+        fig.suptitle("Weights")
+        fig.text(0.5, 0.04, 'Time', ha='center', va='center')
+        nw = len(self.pesos)
+        y = int(round(np.sqrt(nw)+0.5))
+        x = int(round(nw/y+0.5))
+        for i in range(nw):
+            plt.subplot(x, y, i+1)
+            label = self.VJ[i].weight.name()
+            plt.step(t, self.VJ[i].peso_hist, label=label)
+            plt.legend(loc=0, fontsize='large')
+            plt.grid()
+            plt.legend()
+        plt.show()
+        
+    def plotPesosNormalizados(self, t):
+        fig =plt.figure()
+        fig.suptitle("Normalized Weights")
+        nw = len(self.pesos)
+        y = int(round(np.sqrt(nw)+0.5))
+        x = int(round(nw/y+0.5))
+        for i in range(nw):
+            #plt.subplot(x,y,i+1)
+            label = 'n' + self.VJ[i].weight.name() 
+            pesos = np.array(self.VJ[i].peso_hist)
+            plt.step(t,pesos*self.VJ[i].gamma, label = label)
+            plt.legend()
+        plt.show()
+
+    def plotJ(self, t):
+        fig = plt.figure()
+        fig.suptitle("Total Cost")
+        fig.text(0.5, 0.04, 'Time', ha='center', va='center')
+        plt.plot(t,self.j_hist)
+        plt.show()
+
+    def plotJi(self, t):
+        fig = plt.figure()
+        fig.suptitle("Weighted Local Costs")
+        l = len(self.VJ)
+        y = int(round(np.sqrt(l)+0.5))
+        x = int(round(l/y+0.5))
+        for i in range(l):
+            plt.subplot(x,y,i+1)
+            label = self.VJ[i].weight.name() + '*' + self.VJ[i].name 
+            peso = np.array(self.VJ[i].peso_hist)
+            custo = np.array(self.VJ[i].v_hist)
+            plt.step(t,peso*custo, label = label)
+            plt.legend()
+        plt.show()
+
+    def plotV(self, t):
+        fig = plt.figure()
+        fig.suptitle("Local Costs")
+        l = len(self.V)
+        y = int(round(np.sqrt(l)+0.5))
+        x = int(round(l/y+0.5))
+        for i in range(l):
+            plt.subplot(x,y,i+1)
+            label = self.V[i].name
+            plt.step(t,self.V[i].v_hist, label = label)
+            plt.legend()
+        plt.show()
